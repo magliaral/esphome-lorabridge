@@ -1,52 +1,10 @@
-#include <Arduino.h>
-#include <EEPROM.h>
-#include <RadioLib.h>
+#include "lorabridge.h"
 
-#include "config.h"
+namespace esphome {
+namespace lorabridge {
 
-// EEPROM-Adresse für DevNonce (2 Bytes)
-#define DEVNONCE_EEPROM_ADDR 0
-
-// Definitionen für maximale Join-Versuche und Verzögerung zwischen Versuchen
-#define MAX_JOIN_ATTEMPTS    0      // Setzen Sie auf 0 für unbegrenzte Versuche
-#define JOIN_DELAY_MS        30000   // 15 Sekunden
-
-// Funktion zum Lesen des DevNonce aus EEPROM
-uint16_t readDevNonce() {
-  uint16_t storedDevNonce = 0;
-  EEPROM.get(DEVNONCE_EEPROM_ADDR, storedDevNonce);
-  return storedDevNonce;
-}
-
-// Funktion zum Schreiben des DevNonce in EEPROM
-void writeDevNonce(uint16_t newDevNonce) {
-  EEPROM.put(DEVNONCE_EEPROM_ADDR, newDevNonce);
-  #if defined(ESP8266) || defined(ESP32)
-    EEPROM.commit(); // Sicherstellen, dass die Daten geschrieben werden (nur bei ESP)
-  #endif
-}
-
-// Beispielhafte Definition der `debug` Funktion
-void debug(bool condition, const __FlashStringHelper* message, int16_t state, bool halt) {
-  if (condition) {
-    Serial.print(F("Error: "));
-    Serial.println(message);
-    Serial.print(F("State: "));
-    Serial.println(state);
-    if (halt) {
-      while (1); // Endlosschleife, um das Programm anzuhalten
-    }
-  }
-}
-
-// Variable für DevNonce
-uint16_t devNonce = 0;
-
-void setup() {
-  Serial.begin(115200);
-  while(!Serial);
-  delay(5000);  // Zeit zum Wechseln zum Serial Monitor
-  Serial.println(F("\nSetup ... "));
+void Lorabridge::setup() {
+  ESP_LOGI("lorabridge", "Starte Setup...");
 
   // EEPROM initialisieren
   #if defined(ESP8266) || defined(ESP32)
@@ -55,66 +13,65 @@ void setup() {
 
   // DevNonce aus EEPROM lesen
   devNonce = readDevNonce();
-  Serial.print(F("Geladener DevNonce: "));
-  Serial.println(devNonce);
+  ESP_LOGI("lorabridge", "Geladener DevNonce: %u", devNonce);
 
-  Serial.println(F("Initialise the radio"));
+  // Radio initialisieren
   int16_t state = radio.begin();
-  debug(state != RADIOLIB_ERR_NONE, F("Initialise radio failed"), state, true);
+  if (state != RADIOLIB_ERR_NONE) {
+    ESP_LOGE("lorabridge", "Radio-Initialisierung fehlgeschlagen, Zustand: %d", state);
+    while (1) { delay(1); } // Endlosschleife zur Fehlerbehandlung
+  }
 
-  // Setup der OTAA-Sitzungsinformationen
+  // OTAA-Sitzungsinformationen einrichten
   state = node.beginOTAA(joinEUI, devEUI, NULL, appKey);
-  debug(state != RADIOLIB_ERR_NONE, F("Initialise node failed"), state, true);
+  if (state != RADIOLIB_ERR_NONE) {
+    ESP_LOGE("lorabridge", "Node-Initialisierung fehlgeschlagen, Zustand: %d", state);
+    while (1) { delay(1); } // Endlosschleife zur Fehlerbehandlung
+  }
 
-  Serial.println(F("Join ('login') the LoRaWAN Network"));
+  ESP_LOGI("lorabridge", "Beitreten zum LoRaWAN-Netzwerk");
 
   bool joined = false;
   int attempt = 0;
 
-  // Schleife zum wiederholten Versuch, dem Netzwerk beizutreten
+  // Schleife zum Versuch, dem Netzwerk beizutreten
   while (!joined) {
-    Serial.print(F("Attempting to join... Versuch "));
-    Serial.print(attempt + 1);
+    ESP_LOGI("lorabridge", "Versuche beizutreten... Versuch %d", attempt + 1);
     if (MAX_JOIN_ATTEMPTS > 0) {
-      Serial.print(F(" von "));
-      Serial.println(MAX_JOIN_ATTEMPTS);
+      ESP_LOGI("lorabridge", "von %d", MAX_JOIN_ATTEMPTS);
     } else {
-      Serial.println(F(" (unbegrenzte Versuche)"));
+      ESP_LOGI("lorabridge", "(unbegrenzte Versuche)");
     }
 
     state = node.activateOTAA();
     if (state == RADIOLIB_LORAWAN_NEW_SESSION) {
-      Serial.println(F("Join erfolgreich"));
+      ESP_LOGI("lorabridge", "Beitritt erfolgreich");
 
-      // DevNonce nur bei erfolgreichem Join inkrementieren und speichern
+      // DevNonce nur bei erfolgreichem Beitritt inkrementieren und speichern
       devNonce++;
       writeDevNonce(devNonce);
-      Serial.print(F("Neuer DevNonce gespeichert: "));
-      Serial.println(devNonce);
+      ESP_LOGI("lorabridge", "Neuer DevNonce gespeichert: %u", devNonce);
 
       joined = true;
     } else {
-      Serial.print(F("Join fehlgeschlagen, state: "));
-      Serial.println(state);
+      ESP_LOGE("lorabridge", "Beitritt fehlgeschlagen, Zustand: %d", state);
       attempt++;
 
       if (MAX_JOIN_ATTEMPTS > 0 && attempt >= MAX_JOIN_ATTEMPTS) {
-        Serial.println(F("Maximale Anzahl der Join-Versuche erreicht. Neustart..."));
+        ESP_LOGE("lorabridge", "Maximale Anzahl der Join-Versuche erreicht. Neustart...");
         ESP.restart(); // Neustart des Geräts oder andere Fehlerbehandlung
       }
 
-      Serial.print(F("Warte "));
-      Serial.print(JOIN_DELAY_MS / 1000);
-      Serial.println(F(" Sekunden vor dem nächsten Versuch."));
+      ESP_LOGI("lorabridge", "Warte %d Sekunden vor dem nächsten Versuch.", JOIN_DELAY_MS / 1000);
       delay(JOIN_DELAY_MS);
     }
   }
 
-  Serial.println(F("Ready!\n"));
+  ESP_LOGI("lorabridge", "Bereit!\n");
 }
 
-void loop() {
-  Serial.println(F("Sending uplink"));
+void Lorabridge::loop() {
+  ESP_LOGI("lorabridge", "Sende Uplink");
 
   // Beispielhafte Sensor-Daten (hier zufällige Werte)
   uint8_t value1 = radio.random(100);
@@ -123,25 +80,26 @@ void loop() {
   // Aufbau des Payload-Byte-Arrays
   uint8_t uplinkPayload[3];
   uplinkPayload[0] = value1;
-  uplinkPayload[1] = highByte(value2);   // Höheres Byte von value2
-  uplinkPayload[2] = lowByte(value2);    // Niedrigeres Byte von value2
+  uplinkPayload[1] = highByte(value2);
+  uplinkPayload[2] = lowByte(value2);
   
   // Durchführung eines Uplinks mit bis zu 2 Wiederholungen
   int16_t state = node.sendReceive(uplinkPayload, sizeof(uplinkPayload), 2);    
-  debug(state < RADIOLIB_ERR_NONE, F("Error in sendReceive"), state, false);
-
-  // Überprüfung, ob ein Downlink empfangen wurde 
-  // (state 0 = kein Downlink, state 1/2 = Downlink in Fenster Rx1/Rx2)
-  if(state > 0) {
-    Serial.println(F("Received a downlink"));
-  } else {
-    Serial.println(F("No downlink received"));
+  if(state < RADIOLIB_ERR_NONE) {
+    ESP_LOGE("lorabridge", "Fehler bei sendReceive, Zustand: %d", state);
   }
 
-  Serial.print(F("Next uplink in "));
-  Serial.print(uplinkIntervalSeconds);
-  Serial.println(F(" seconds\n"));
+  // Überprüfung, ob ein Downlink empfangen wurde 
+  if(state > 0) {
+    ESP_LOGI("lorabridge", "Downlink empfangen");
+  } else {
+    ESP_LOGI("lorabridge", "Kein Downlink empfangen");
+  }
+
+  ESP_LOGI("lorabridge", "Nächstes Uplink in %u Sekunden\n", uplinkIntervalSeconds);
   
-  // Warten bis zum nächsten Uplink - unter Berücksichtigung der gesetzlichen und TTN FUP-Richtlinien
-  delay(uplinkIntervalSeconds * 1000UL);  // delay benötigt Millisekunden
+  delay(uplinkIntervalSeconds * 1000UL);  // Warten bis zum nächsten Uplink
 }
+
+}  // namespace lorabridge
+}  // namespace esphome
