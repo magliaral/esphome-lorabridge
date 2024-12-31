@@ -1,3 +1,0 @@
-idf_component_register(SRCS "components/lorabridge/lorabridge.cpp"
-                    INCLUDE_DIRS "components/lorabridge"
-                    REQUIRES )
