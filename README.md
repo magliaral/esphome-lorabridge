@@ -17,17 +17,13 @@ esphome:
       - jgromes/RadioLib@^7.1.1
       - https://github.com/radiolib-org/RadioBoards.git
 
-esp32:
-  board: ttgo-lora32-v21
-  framework:
-    type: arduino
-  
-
 external_components:
   # LoRaBridge Component
   - source:
       type: git
       url: https://github.com/magliaral/esphome-lorabridge
+
+lorabridge:
 ```
 
 ## License
