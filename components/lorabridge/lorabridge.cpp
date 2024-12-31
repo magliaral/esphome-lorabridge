@@ -1,5 +1,6 @@
 #include "esphome/core/log.h"
 #include "lorabridge.h"
+#include "Arduino.h"
 
 namespace esphome {
 namespace lorabridge {
@@ -27,20 +28,5 @@ void LoRaBridge::dump_config(){
 }
 
 
-}  // namespace lorabridge
-}  // namespace esphome
-
-  // Überprüfung, ob ein Downlink empfangen wurde 
-  if(state > 0) {
-    ESP_LOGI(TAG, "Downlink empfangen");
-  } else {
-    ESP_LOGI(TAG, "Kein Downlink empfangen");
-  }
-
-  ESP_LOGI(TAG, "Nächstes Uplink in %u Sekunden\n", uplinkIntervalSeconds);
-  
-  delay(uplinkIntervalSeconds * 1000UL);  // Warten bis zum nächsten Uplink
-}
-
-}  // namespace lorabridge
+}  // namespace empty_component
 }  // namespace esphome
