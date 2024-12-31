@@ -4,5 +4,7 @@ ESPHome LoRaBridge is a custom component for transmitting sensor values over LoR
 
 ## License
 This project is licensed under the MIT License.
+For more details, see the [LICENSE](LICENSE) file.
+
 This project uses the RadioLib library, which is licensed under the LGPL-3.0.
 For more details, see the [RadioLib GitHub repository](https://github.com/jgromes/RadioLib).
