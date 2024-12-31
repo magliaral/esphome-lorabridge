@@ -21,6 +21,7 @@ external_components:
 sensor:
   - platform: lorabridge
     name: "LoRa Sensor"
+```
 
 ## License
 This project is licensed under the MIT License.
