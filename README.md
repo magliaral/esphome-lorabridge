@@ -14,7 +14,8 @@ external_components:
       url: https://github.com/magliaral/esphome-lorabridge
     requirements:
       platformio_options:
-        lib_deps: 
+        lib_deps:
+          - https://github.com/radiolib-org/RadioBoards.git
           - jgromes/RadioLib@^7.1.1
 
   # Example sensor configuration
