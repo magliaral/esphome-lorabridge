@@ -21,13 +21,6 @@ void LoRaBridge::loop() {
         ESP_LOGI(TAG, "Loop der LoRaBridge online läuft seit %lu ms", current_time);
         last_log_time = current_time; // Aktualisieren der letzten Log-Zeit
     }
-
-    // Beispiel für zusätzliche Logik
-    if (state > 0) {
-        // Ihre Logik hier
-    } else {
-        // Ihre Logik hier
-    }
 }
 
 void LoRaBridge::dump_config(){
