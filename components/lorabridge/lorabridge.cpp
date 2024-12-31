@@ -8,7 +8,7 @@ namespace lorabridge {
 static const char *TAG = "lorabridge.component";
 
 void LoRaBridge::setup() {
-    ESP_LOGI(TAG, "Setup der LoRaBridge gestartet");
+    ESP_LOGI(TAG, "Setup der LoRaBridge online gestartet");
     // Ihr Setup-Code hier
 }
 
@@ -18,7 +18,7 @@ void LoRaBridge::loop() {
 
     // Prüfen, ob seit dem letzten Log-Eintrag mehr als 5000 ms (5 Sekunden) vergangen sind
     if (current_time - last_log_time > 15000) { // 15000 ms = 5 Sekunden
-        ESP_LOGI(TAG, "Loop der LoRaBridge läuft seit %lu ms", current_time);
+        ESP_LOGI(TAG, "Loop der LoRaBridge online läuft seit %lu ms", current_time);
         last_log_time = current_time; // Aktualisieren der letzten Log-Zeit
     }
 }
