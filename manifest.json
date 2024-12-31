@@ -1,0 +1,10 @@
+{
+    "name": "lorabridge",
+    "version": "0.1.0",
+    "description": "A custom LoRaWAN bridge component for ESPHome",
+    "repository": "https://github.com/magliaral/esphome-lorabridge",
+    "license": "MIT",
+    "dependencies": [],
+    "codeowners": []
+  }
+  
