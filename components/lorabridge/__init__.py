@@ -3,7 +3,7 @@ import esphome.config_validation as cv
 from esphome.const import CONF_ID
 
 lorabridge_ns = cg.esphome_ns.namespace("lorabridge")
-LoRaBridg = lorabridge_ns.class_("LoRaBridge", cg.Component)
+LoRaBridge = lorabridge_ns.class_("LoRaBridge", cg.Component)
 
 CONFIG_SCHEMA = cv.Schema(
     {
@@ -15,3 +15,4 @@ CONFIG_SCHEMA = cv.Schema(
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
+

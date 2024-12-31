@@ -1,104 +1,34 @@
-#include "lorabridge.h"
 #include "esphome/core/log.h"
+#include "lorabridge.h"
 
 namespace esphome {
 namespace lorabridge {
 
-static const char *const TAG = "lorabridge";
+static const char *TAG = "lorabridge.component";
 
-// Definieren des CONFIG_SCHEMA und Registrierung der Komponente
-static void lorabridge_to_code(esphome::config::ConfigNode config) {
-  auto *lorabridge = new Lorabridge();
-  App.register_component(lorabridge);
+void LoRaBridge::setup() {
+    ESP_LOGI(TAG, "Setup der LoRaBridge gestartet");
+    // Ihr Setup-Code hier
 }
 
-ESPHomeComponent(lorabridge, lorabridge_to_code);
+void LoRaBridge::loop() {
+    static unsigned long last_log_time = 0; // Speichert die Zeit des letzten Log-Eintrags
+    unsigned long current_time = millis();   // Aktuelle Zeit in Millisekunden seit dem Start
 
-void Lorabridge::setup() {
-  ESP_LOGI(TAG, "Starte Setup...");
-
-  // EEPROM initialisieren
-  #if defined(ESP8266) || defined(ESP32)
-    EEPROM.begin(512); // Größe anpassen, falls nötig
-  #endif
-
-  // DevNonce aus EEPROM lesen
-  devNonce = readDevNonce();
-  ESP_LOGI(TAG, "Geladener DevNonce: %u", devNonce);
-
-  // Radio initialisieren
-  int16_t state = radio.begin();
-  if (state != RADIOLIB_ERR_NONE) {
-    ESP_LOGE(TAG, "Radio-Initialisierung fehlgeschlagen, Zustand: %d", state);
-    while (1) { delay(1); } // Endlosschleife zur Fehlerbehandlung
-  }
-
-  // OTAA-Sitzungsinformationen einrichten
-  state = node.beginOTAA(joinEUI, devEUI, NULL, appKey);
-  if (state != RADIOLIB_ERR_NONE) {
-    ESP_LOGE(TAG, "Node-Initialisierung fehlgeschlagen, Zustand: %d", state);
-    while (1) { delay(1); } // Endlosschleife zur Fehlerbehandlung
-  }
-
-  ESP_LOGI(TAG, "Beitreten zum LoRaWAN-Netzwerk");
-
-  bool joined = false;
-  int attempt = 0;
-
-  // Schleife zum Versuch, dem Netzwerk beizutreten
-  while (!joined) {
-    ESP_LOGI(TAG, "Versuche beizutreten... Versuch %d", attempt + 1);
-    if (MAX_JOIN_ATTEMPTS > 0) {
-      ESP_LOGI(TAG, "von %d", MAX_JOIN_ATTEMPTS);
-    } else {
-      ESP_LOGI(TAG, "(unbegrenzte Versuche)");
+    // Prüfen, ob seit dem letzten Log-Eintrag mehr als 5000 ms (5 Sekunden) vergangen sind
+    if (current_time - last_log_time > 15000) { // 15000 ms = 5 Sekunden
+        ESP_LOGI(TAG, "Loop der LoRaBridge läuft seit %lu ms", current_time);
+        last_log_time = current_time; // Aktualisieren der letzten Log-Zeit
     }
-
-    state = node.activateOTAA();
-    if (state == RADIOLIB_LORAWAN_NEW_SESSION) {
-      ESP_LOGI(TAG, "Beitritt erfolgreich");
-
-      // DevNonce nur bei erfolgreichem Beitritt inkrementieren und speichern
-      devNonce++;
-      writeDevNonce(devNonce);
-      ESP_LOGI(TAG, "Neuer DevNonce gespeichert: %u", devNonce);
-
-      joined = true;
-    } else {
-      ESP_LOGE(TAG, "Beitritt fehlgeschlagen, Zustand: %d", state);
-      attempt++;
-
-      if (MAX_JOIN_ATTEMPTS > 0 && attempt >= MAX_JOIN_ATTEMPTS) {
-        ESP_LOGE(TAG, "Maximale Anzahl der Join-Versuche erreicht. Neustart...");
-        ESP.restart(); // Neustart des Geräts oder andere Fehlerbehandlung
-      }
-
-      ESP_LOGI(TAG, "Warte %d Sekunden vor dem nächsten Versuch.", JOIN_DELAY_MS / 1000);
-      delay(JOIN_DELAY_MS);
-    }
-  }
-
-  ESP_LOGI(TAG, "Bereit!\n");
 }
 
-void Lorabridge::loop() {
-  ESP_LOGI(TAG, "Sende Uplink");
+void LoRaBridge::dump_config(){
+    ESP_LOGCONFIG(TAG, "LoRaBridge");
+}
 
-  // Beispielhafte Sensor-Daten (hier zufällige Werte)
-  uint8_t value1 = radio.random(100);
-  uint16_t value2 = radio.random(2000);
 
-  // Aufbau des Payload-Byte-Arrays
-  uint8_t uplinkPayload[3];
-  uplinkPayload[0] = value1;
-  uplinkPayload[1] = highByte(value2);
-  uplinkPayload[2] = lowByte(value2);
-  
-  // Durchführung eines Uplinks mit bis zu 2 Wiederholungen
-  int16_t state = node.sendReceive(uplinkPayload, sizeof(uplinkPayload), 2);    
-  if(state < RADIOLIB_ERR_NONE) {
-    ESP_LOGE(TAG, "Fehler bei sendReceive, Zustand: %d", state);
-  }
+}  // namespace lorabridge
+}  // namespace esphome
 
   // Überprüfung, ob ein Downlink empfangen wurde 
   if(state > 0) {

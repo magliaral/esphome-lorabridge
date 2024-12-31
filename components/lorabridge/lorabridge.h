@@ -1,18 +1,17 @@
 #pragma once
 
-#include "esphome.h"
-#include "config.h"
+#include "esphome/core/component.h"
 
 namespace esphome {
 namespace lorabridge {
 
-class Lorabridge : public Component {
+class LoRaBridge : public Component {
  public:
   void setup() override;
   void loop() override;
-
-  // Optional: Fügen Sie hier weitere Methoden oder Eigenschaften hinzu
+  void dump_config() override;
 };
+
 
 }  // namespace lorabridge
 }  // namespace esphome
