@@ -11,23 +11,8 @@ class Lorabridge : public Component {
   void setup() override;
   void loop() override;
 
-  // Optional: Fügen Sie hier Konfigurationsparameter hinzu, z.B.:
-  // std::string some_parameter_;
-  // void set_some_parameter(std::string parameter) { this->some_parameter_ = parameter; }
+  // Optional: Fügen Sie hier weitere Methoden oder Eigenschaften hinzu
 };
-
-}  // namespace lorabridge
-}  // namespace esphome
-
-// Definieren des CONFIG_SCHEMA für die Komponente
-#include "lorabridge.h"
-#include "esphome/core/component.h"
-
-namespace esphome {
-namespace lorabridge {
-
-static const auto LORABRIDGE_SCHEMA = 
-    esphome::config::make_schema<lorabridge::Lorabridge>();
 
 }  // namespace lorabridge
 }  // namespace esphome
