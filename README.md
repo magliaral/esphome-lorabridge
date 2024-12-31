@@ -7,21 +7,27 @@ ESPHome LoRaBridge is a custom component for transmitting sensor values over LoR
 To use this component in ESPHome, add the following configuration to your `esphome.yaml`:
 
 ```yaml
+esphome:
+  name: "esphome-lorabridge"
+  libraries:
+    - SPI
+  platformio_options:
+    lib_ldf_mode: chain+
+    lib_deps:
+      - jgromes/RadioLib@^7.1.1
+      - https://github.com/radiolib-org/RadioBoards.git
+
+esp32:
+  board: ttgo-lora32-v21
+  framework:
+    type: arduino
+  
+
 external_components:
   # LoRaBridge Component
   - source:
       type: git
       url: https://github.com/magliaral/esphome-lorabridge
-    requirements:
-      platformio_options:
-        lib_deps:
-          - https://github.com/radiolib-org/RadioBoards.git
-          - jgromes/RadioLib@^7.1.1
-
-  # Example sensor configuration
-sensor:
-  - platform: lorabridge
-    name: "LoRa Sensor"
 ```
 
 ## License
