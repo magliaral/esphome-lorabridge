@@ -24,8 +24,8 @@ sensor:
 ```
 
 ## License
-This project is licensed under the MIT License.
+This project is licensed under the MIT License.<br>
 For more details, see the [LICENSE](LICENSE) file.
 
-This project uses the RadioLib library, which is licensed under the LGPL-3.0.
+This project uses the RadioLib library, which is licensed under the LGPL-3.0.<br>
 For more details, see the [RadioLib GitHub repository](https://github.com/jgromes/RadioLib).
