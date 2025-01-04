@@ -1,6 +1,7 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.const import CONF_ID
+from esphome.components import sensor
 
 lorabridge_ns = cg.esphome_ns.namespace("lorabridge")
 LoRaBridge = lorabridge_ns.class_("LoRaBridge", cg.Component)
@@ -12,6 +13,14 @@ CONF_DEV_EUI = "dev_eui"
 CONF_APP_KEY = "app_key"
 CONF_NWK_KEY = "nwk_key"
 CONF_UPLINK_INTERVAL = "uplink_interval"
+CONF_PAYLOAD = "payload"
+
+PAYLOAD_ITEM_SCHEMA = cv.Schema({
+    cv.Required("sensor"): cv.use_id(sensor.Sensor),
+    cv.Optional("multiplier", default=1): cv.float_,
+    cv.Optional("offset", default=0): cv.float_,
+    cv.Optional("bytes", default=1): cv.int_range(min=1, max=4),
+})
 
 CONFIG_SCHEMA = cv.Schema(
     {
@@ -23,6 +32,7 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Required(CONF_APP_KEY): cv.All(cv.string, lambda value: validate_hex_length(value, 32, "app_key")),
         cv.Optional(CONF_NWK_KEY, default="00000000000000000000000000000000"): cv.All(cv.string, lambda value: validate_hex_length(value, 32, "nwk_key")),
         cv.Optional(CONF_UPLINK_INTERVAL, default=60): cv.uint32_t,
+        cv.Optional(CONF_PAYLOAD, default=[]): cv.ensure_list(PAYLOAD_ITEM_SCHEMA),
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -89,3 +99,11 @@ async def to_code(config):
 
     # uplink_interval
     cg.add(var.set_uplink_interval(config[CONF_UPLINK_INTERVAL]))
+
+    # payload
+    for item in config[CONF_PAYLOAD]:
+        sens_var = await cg.get_variable(item["sensor"])
+        multiplier = item["multiplier"]
+        offset = item["offset"]
+        bytes_ = item["bytes"]
+        cg.add(var.add_payload_item(sens_var, multiplier, offset, bytes_))

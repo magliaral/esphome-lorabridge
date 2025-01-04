@@ -8,6 +8,15 @@ static const char *TAG = "lorabridge.component";
 
 TaskHandle_t join_lora_wan_task_handle_;
 
+void LoRaBridge::add_payload_item(sensor::Sensor *sens, float multiplier, float offset, uint8_t bytes) {
+  PayloadItem item;
+  item.sensor_ = sens;
+  item.multiplier_ = multiplier;
+  item.offset_ = offset;
+  item.bytes_ = bytes;
+  this->payload_items_.push_back(item);
+}
+
 void LoRaBridge::setup() {
   ESP_LOGI(TAG, "Setup der LoRaBridge gestartet");
   
@@ -60,19 +69,42 @@ void LoRaBridge::joinLoRaWanTask(void *pvParameters) {
 
   if (joined) {
     while (true) {
-      ESP_LOGI(TAG, "Sende Uplink");
+      ESP_LOGI(TAG, "Sende Uplink...");
 
-      uint8_t value1 = self->radio.random(100);
-      uint16_t value2 = self->radio.random(2000);
+      // 1) Gesamt-Payload-Größe
+      size_t total_size = 0;
+      for (auto &item : self->payload_items_) {
+        total_size += item.bytes_;
+      }
 
-      uint8_t uplinkPayload[3] = { value1, highByte(value2), lowByte(value2) };
+      // 2) Payload-Buffer anlegen
+      std::vector<uint8_t> payload(total_size, 0);
+      size_t index = 0;
 
-      int16_t send_state = self->node.sendReceive(uplinkPayload, sizeof(uplinkPayload), 2);
+      // 3) Jeden Eintrag verarbeiten
+      for (auto &item : self->payload_items_) {
+        float raw_val = 0.0f;
+        if (item.sensor_ != nullptr) {
+          raw_val = item.sensor_->state;
+        } else {
+          // Sensor nicht vorhanden
+        }
+        float scaled_val = raw_val * item.multiplier_ + item.offset_;
+        int32_t i_val = static_cast<int32_t>(scaled_val);
 
+        // Werte < 0 clampen? => if (i_val < 0) i_val = 0;
+
+        // Big-Endian
+        for (int b = 0; b < item.bytes_; b++) {
+          payload[index + b] = (i_val >> (8 * (item.bytes_ - 1 - b))) & 0xFF;
+        }
+        index += item.bytes_;
+      }
+
+      // 4) Senden
+      int16_t send_state = self->node.sendReceive(payload.data(), payload.size(), 2);
       if (send_state > 0) {
         ESP_LOGI(TAG, "Downlink empfangen");
-      } else {
-        //ESP_LOGI(TAG, "Kein Downlink empfangen");
       }
 
       ESP_LOGI(TAG, "Nächster Uplink in %u Sekunden", self->uplink_interval_);

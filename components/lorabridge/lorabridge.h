@@ -4,6 +4,9 @@
 #include "esphome/core/log.h"
 #include <RadioLib.h>
 #include <array>
+#include <vector>
+
+#include "esphome/components/sensor/sensor.h"
 
 #define RADIO_BOARD_AUTO
 #include <RadioBoards.h>
@@ -24,6 +27,8 @@ class LoRaBridge : public Component {
   void set_app_key(const std::array<uint8_t, 16> &app_key) { this->app_key_ = app_key; }
   void set_nwk_key(const std::array<uint8_t, 16> &nwk_key) { this->nwk_key_ = nwk_key; }
   void set_uplink_interval(uint32_t uplink_interval) { this->uplink_interval_ = uplink_interval; }
+
+  void add_payload_item(sensor::Sensor *sens, float multiplier, float offset, uint8_t bytes);
 
  private:
   // LoRaWAN-Objekte und Variablen
@@ -48,6 +53,17 @@ class LoRaBridge : public Component {
 
   // Hilfsfunktionen
   String stateDecode(const int16_t result);
+
+    // Kleiner Struct für jedes Payload-Element
+  struct PayloadItem {
+    sensor::Sensor *sensor_{nullptr};
+    float multiplier_{1.0f};
+    float offset_{0.0f};
+    uint8_t bytes_{2};
+  };
+
+  // Liste aller Payload-Einträge
+  std::vector<PayloadItem> payload_items_;
 };
 
 }  // namespace lorabridge
