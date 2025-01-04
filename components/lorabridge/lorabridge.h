@@ -1,95 +1,54 @@
-#include "lorabridge.h"
+#pragma once
+
+#include "esphome/core/component.h"
 #include "esphome/core/log.h"
+#include <RadioLib.h>
+#include <array>
+
+#define RADIO_BOARD_AUTO
+#include <RadioBoards.h>
 
 namespace esphome {
 namespace lorabridge {
 
-static const char *TAG = "lorabridge.component";
-
-TaskHandle_t join_lora_wan_task_handle_;
-
-void LoRaBridge::setup() {
-  ESP_LOGI(TAG, "Setup der LoRaBridge gestartet");
+class LoRaBridge : public Component {
+ public:
+  void setup() override;
+  void loop() override;
+  void dump_config() override;
   
-  state = radio.begin();
-  if (state != RADIOLIB_ERR_NONE) {
-    ESP_LOGW(TAG, "Initialisierung des Radio fehlgeschlagen, state: %s (%d)", stateDecode(state).c_str(), state);
-  }
+  void set_region(const LoRaWANBand_t &region) { this->region_ = region; }
+  void set_sub_band(uint8_t sub_band) { this->sub_band_ = sub_band; }
+  void set_join_eui(uint64_t join_eui) { this->join_eui_ = join_eui; }
+  void set_dev_eui(uint64_t dev_eui) { this->dev_eui_ = dev_eui; }
+  void set_app_key(const std::array<uint8_t, 16> &app_key) { this->app_key_ = app_key; }
+  void set_nwk_key(const std::array<uint8_t, 16> &nwk_key) { this->nwk_key_ = nwk_key; }
+  void set_uplink_interval(uint32_t uplink_interval) { this->uplink_interval_ = uplink_interval; }
 
-  state = node.beginOTAA(join_eui_, dev_eui_, nullptr, app_key_.data());
-  if (state != RADIOLIB_ERR_NONE) {
-    ESP_LOGW(TAG, "Initialisierung des Node fehlgeschlagen, state: %s (%d)", stateDecode(state).c_str(), state);
-  }
+ private:
+  // LoRaWAN-Objekte und Variablen
+  LoRaWANBand_t region_ = EU868;
+  uint8_t sub_band_ = 0;
+  uint64_t join_eui_;
+  uint64_t dev_eui_;
+  std::array<uint8_t, 16> app_key_;
+  std::array<uint8_t, 16> nwk_key_;
+  uint32_t uplink_interval_;
+  int16_t state;
 
-  xTaskCreatePinnedToCore(
-    joinLoRaWanTask,
-    "Join LoRaWAN Task",
-    8192,
-    this,
-    1,
-    &join_lora_wan_task_handle_,
-    1
-  );
-}
+  Radio radio = new RadioModule();
+  LoRaWANNode node = LoRaWANNode(&radio, &region_, sub_band_);
 
-void LoRaBridge::loop() {
-  // Der Hauptloop bleibt leer, da die Arbeit im separaten Task erledigt wird
-}
+  // Task-Handle
+  static void joinLoRaWanTask(void *pvParameters);
 
-void LoRaBridge::dump_config() {
-  ESP_LOGCONFIG(TAG, "LoRaBridge:");
-}
+  // Weitere Konfigurationsparameter
+  static const uint8_t MAX_JOIN_ATTEMPTS = 0;    // 0 für unbegrenzte Versuche
+  static const uint32_t JOIN_DELAY_MS = 30000;   // 30 Sekunden
 
-void LoRaBridge::joinLoRaWanTask(void *pvParameters) {
-  LoRaBridge *self = static_cast<LoRaBridge *>(pvParameters);
-  uint8_t attempt = 0;
-  bool joined = false;
-
-  while (!joined && (self->MAX_JOIN_ATTEMPTS == 0 || attempt < self->MAX_JOIN_ATTEMPTS)) {
-    attempt++;
-    ESP_LOGI(TAG, "Versuch %u dem LoRaWAN beizutreten...", attempt);
-    self->state = self->node.activateOTAA();
-    if (self->state == RADIOLIB_LORAWAN_NEW_SESSION) {
-      ESP_LOGI(TAG, "Join mit dem LoRaWAN erfolgreich");
-      joined = true;
-    } else {
-      ESP_LOGD(TAG, "Join ist fehlgeschlagen, state: %s (%d)", self->stateDecode(self->state).c_str(), self->state);
-      vTaskDelay(self->JOIN_DELAY_MS / portTICK_PERIOD_MS);
-    }
-  }
-
-  if (joined) {
-    while (true) {
-      ESP_LOGI(TAG, "Sende Uplink");
-
-      uint8_t value1 = self->radio.random(100);
-      uint16_t value2 = self->radio.random(2000);
-
-      uint8_t uplinkPayload[3] = { value1, highByte(value2), lowByte(value2) };
-
-      int16_t send_state = self->node.sendReceive(uplinkPayload, sizeof(uplinkPayload), 2);
-
-      if (send_state > 0) {
-        ESP_LOGI(TAG, "Downlink empfangen");
-      } else {
-        //ESP_LOGI(TAG, "Kein Downlink empfangen");
-      }
-
-      ESP_LOGI(TAG, "Nächster Uplink in %u Sekunden", self->uplink_interval_);
-      vTaskDelay(self->uplink_interval_ * 1000UL / portTICK_PERIOD_MS);
-    }
-  }
-}
-
-String LoRaBridge::stateDecode(const int16_t result) {
-  switch (result) {
-    case RADIOLIB_ERR_NONE:
-      return "ERR_NONE";
-    // ... [restliche Fälle]
-    default:
-      return "Unbekannter Fehler. Siehe https://jgromes.github.io/RadioLib/group__status__codes.html";
-  }
-}
+  // Hilfsfunktionen
+  String stateDecode(const int16_t result);
+};
 
 }  // namespace lorabridge
 }  // namespace esphome

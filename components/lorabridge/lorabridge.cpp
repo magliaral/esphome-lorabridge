@@ -10,7 +10,7 @@ TaskHandle_t join_lora_wan_task_handle_;
 
 void LoRaBridge::setup() {
   ESP_LOGI(TAG, "Setup der LoRaBridge gestartet");
-
+  
   state = radio.begin();
   if (state != RADIOLIB_ERR_NONE) {
     ESP_LOGW(TAG, "Initialisierung des Radio fehlgeschlagen, state: %s (%d)", stateDecode(state).c_str(), state);
