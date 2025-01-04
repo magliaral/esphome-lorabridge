@@ -35,10 +35,10 @@ lorabridge:
 ## License
 This project is licensed under the [MIT License](LICENSE).
 This project uses the following libraries:
-1. **[RadioLib](https://github.com/jgromes/RadioLib)**  
+1. **RadioLib**
    - License: [LGPL-3.0](https://opensource.org/licenses/LGPL-3.0)  
    - For more details, see the [RadioLib GitHub repository](https://github.com/jgromes/RadioLib).
 
-2. **[RadioBoards](https://github.com/radiolib-org/RadioBoards)**  
+2. **RadioBoards**  
    - License: [MIT](https://opensource.org/licenses/MIT)  
    - For more information, see the [RadioBoards GitHub repository](https://github.com/radiolib-org/RadioBoards).
