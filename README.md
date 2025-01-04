@@ -21,7 +21,7 @@ external_components:
   - source:
       type: git
       url: https://github.com/magliaral/esphome-lorabridge.git
-      ref: 1.0.0
+      ref: 0.1.0
 
 lorabridge:
   region: EU868
