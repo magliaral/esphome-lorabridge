@@ -39,6 +39,6 @@ This project uses the following libraries:
    - License: [LGPL-3.0](https://opensource.org/licenses/LGPL-3.0)  
    - For more details, see the [RadioLib GitHub repository](https://github.com/jgromes/RadioLib).
 
-2. **[RadioBoards](https://github.com/radiolib-org/RadioBoards.git)**  
+2. **[RadioBoards](https://github.com/radiolib-org/RadioBoards)**  
    - License: [MIT](https://opensource.org/licenses/MIT)  
-   - For more information, see the [RadioBoards GitHub repository](https://github.com/radiolib-org/RadioBoards.git).
+   - For more information, see the [RadioBoards GitHub repository](https://github.com/radiolib-org/RadioBoards).
