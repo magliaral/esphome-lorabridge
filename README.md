@@ -33,8 +33,12 @@ lorabridge:
 ```
 
 ## License
-This project is licensed under the MIT License.<br>
-For more details, see the [LICENSE](LICENSE) file.
+This project is licensed under the [MIT License](LICENSE).
+This project uses the following libraries:
+1. **[RadioLib](https://github.com/jgromes/RadioLib)**  
+   - License: [LGPL-3.0](https://opensource.org/licenses/LGPL-3.0)  
+   - For more details, see the [RadioLib GitHub repository](https://github.com/jgromes/RadioLib).
 
-This project uses the RadioLib library, which is licensed under the LGPL-3.0.<br>
-For more details, see the [RadioLib GitHub repository](https://github.com/jgromes/RadioLib).
+2. **[RadioBoards](https://github.com/radiolib-org/RadioBoards.git)**  
+   - License: [MIT](https://opensource.org/licenses/MIT)  
+   - For more information, see the [RadioBoards GitHub repository](https://github.com/radiolib-org/RadioBoards.git).
