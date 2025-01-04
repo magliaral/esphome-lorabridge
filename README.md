@@ -25,9 +25,11 @@ external_components:
 
 lorabridge:
   region: EU868
+  sub_band: 0                                 # Is optional. Default set by 0. For US915, change this to 2, otherwise leave on 0
   join_eui: ----------------
   dev_eui: ----------------
   app_key: --------------------------------
+  uplink_interval: 60                         # Is optional. Default set 60 seconds
 ```
 
 ## License
