@@ -18,10 +18,9 @@ esphome:
       - https://github.com/radiolib-org/RadioBoards.git
 
 external_components:
-  # LoRaBridge Component
-  - source:
       type: git
-      url: https://github.com/magliaral/esphome-lorabridge@^1.0.0
+      url: https://github.com/magliaral/esphome-lorabridge.git
+      ref: 1.0.0
 
 lorabridge:
   region: EU868
