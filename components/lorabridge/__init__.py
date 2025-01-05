@@ -1,7 +1,9 @@
+# __init__.py (wird nur leicht angepasst, wenn notwendig)
+
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.const import CONF_ID
-from esphome.components import sensor
+from esphome.components import sensor, binary_sensor
 
 lorabridge_ns = cg.esphome_ns.namespace("lorabridge")
 LoRaBridge = lorabridge_ns.class_("LoRaBridge", cg.Component)
@@ -19,7 +21,11 @@ PAYLOAD_ITEM_SCHEMA = cv.Schema({
     cv.Required("sensor"): cv.use_id(sensor.Sensor),
     cv.Optional("multiplier", default=1): cv.float_,
     cv.Optional("offset", default=0): cv.float_,
-    cv.Optional("bytes", default=1): cv.int_range(min=1, max=4),
+    cv.Optional("bytes", default=2): cv.int_range(min=1, max=4),
+})
+
+BINARY_PAYLOAD_ITEM_SCHEMA = cv.Schema({
+    cv.Required("binary_sensor"): cv.use_id(binary_sensor.BinarySensor),
 })
 
 CONFIG_SCHEMA = cv.Schema(
@@ -32,7 +38,10 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Required(CONF_APP_KEY): cv.All(cv.string, lambda value: validate_hex_length(value, 32, "app_key")),
         cv.Optional(CONF_NWK_KEY, default="00000000000000000000000000000000"): cv.All(cv.string, lambda value: validate_hex_length(value, 32, "nwk_key")),
         cv.Optional(CONF_UPLINK_INTERVAL, default=60): cv.uint32_t,
-        cv.Optional(CONF_PAYLOAD, default=[]): cv.ensure_list(PAYLOAD_ITEM_SCHEMA),
+        cv.Optional(CONF_PAYLOAD, default={}): cv.Schema({
+            cv.Optional("sensors", default=[]): cv.ensure_list(PAYLOAD_ITEM_SCHEMA),
+            cv.Optional("binary_sensors", default=[]): cv.ensure_list(BINARY_PAYLOAD_ITEM_SCHEMA),
+        }),
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -48,26 +57,26 @@ def validate_hex_length(value, length, name):
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
-
-    # **Setze die Region basierend auf der YAML-Konfiguration**
+    
+    # Region setzen
     region_str = config[CONF_REGION]
     region_expr = cg.RawExpression(f"{region_str}")
     cg.add(var.set_region(region_expr))
-
-    # sub_band
+    
+    # Sub-Band setzen
     cg.add(var.set_sub_band(config[CONF_SUB_BAND]))
-
-    # join_eui
+    
+    # Join EUI setzen
     join_eui_str = config[CONF_JOIN_EUI]
     join_eui_int = int(join_eui_str, 16)
     cg.add(var.set_join_eui(join_eui_int))
     
-    # dev_eui
+    # Dev EUI setzen
     dev_eui_str = config[CONF_DEV_EUI]
     dev_eui_int = int(dev_eui_str, 16)
     cg.add(var.set_dev_eui(dev_eui_int))
     
-    # app_key
+    # App Key setzen
     app_key_str = config[CONF_APP_KEY]
     try:
         app_key_bytes = bytes.fromhex(app_key_str)
@@ -77,12 +86,11 @@ async def to_code(config):
     if len(app_key_bytes) != 16:
         raise cv.Invalid("app_key muss 32 HEX-Zeichen enthalten (16 Bytes)")
     
-    # Erstellen einer C++ Initializer-Liste für std::array<uint8_t, 16>
     app_key_expr = "std::array<uint8_t, 16>{" + ", ".join(f"0x{b:02X}" for b in app_key_bytes) + "}"
     app_key_initializer = cg.RawExpression(app_key_expr)
     cg.add(var.set_app_key(app_key_initializer))
-
-    # nwk_key
+    
+    # NWK Key setzen
     nwk_key_str = config[CONF_NWK_KEY]
     try:
         nwk_key_bytes = bytes.fromhex(nwk_key_str)
@@ -92,18 +100,22 @@ async def to_code(config):
     if len(nwk_key_bytes) != 16:
         raise cv.Invalid("nwk_key muss 32 HEX-Zeichen enthalten (16 Bytes)")
     
-    # Erstellen einer C++ Initializer-Liste für std::array<uint8_t, 16>
     nwk_key_expr = "std::array<uint8_t, 16>{" + ", ".join(f"0x{b:02X}" for b in nwk_key_bytes) + "}"
     nwk_key_initializer = cg.RawExpression(nwk_key_expr)
     cg.add(var.set_nwk_key(nwk_key_initializer))
-
-    # uplink_interval
+    
+    # Uplink-Intervall setzen
     cg.add(var.set_uplink_interval(config[CONF_UPLINK_INTERVAL]))
-
-    # payload
-    for item in config[CONF_PAYLOAD]:
+    
+    # Sensor-Payload verarbeiten
+    for item in config[CONF_PAYLOAD].get("sensors", []):
         sens_var = await cg.get_variable(item["sensor"])
         multiplier = item["multiplier"]
         offset = item["offset"]
         bytes_ = item["bytes"]
-        cg.add(var.add_payload_item(sens_var, multiplier, offset, bytes_))
+        cg.add(var.add_sensor_payload_item(sens_var, multiplier, offset, bytes_))
+    
+    # Binary Sensor-Payload verarbeiten
+    for item in config[CONF_PAYLOAD].get("binary_sensors", []):
+        bin_sens_var = await cg.get_variable(item["binary_sensor"])
+        cg.add(var.add_binary_payload_item(bin_sens_var))

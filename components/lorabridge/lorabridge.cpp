@@ -8,13 +8,50 @@ static const char *TAG = "lorabridge.component";
 
 TaskHandle_t join_lora_wan_task_handle_;
 
-void LoRaBridge::add_payload_item(sensor::Sensor *sens, float multiplier, float offset, uint8_t bytes) {
-  PayloadItem item;
+void LoRaBridge::add_sensor_payload_item(sensor::Sensor *sens, float multiplier, float offset, uint8_t bytes) {
+  SensorPayloadItem item;
   item.sensor_ = sens;
   item.multiplier_ = multiplier;
   item.offset_ = offset;
   item.bytes_ = bytes;
-  this->payload_items_.push_back(item);
+  this->sensor_payload_items_.push_back(item);
+}
+
+void LoRaBridge::add_binary_payload_item(binary_sensor::BinarySensor *bin_sens) {
+  BinaryPayloadItem item;
+  item.binary_sensor_ = bin_sens;
+  this->binary_payload_items_.push_back(item);
+}
+
+std::vector<uint8_t> LoRaBridge::pack_binary_sensors() {
+  std::vector<uint8_t> bin_bytes;
+  size_t total = this->binary_payload_items_.size();
+  size_t full_bytes = total / 8;
+  size_t remaining_bits = total % 8;
+  
+  for (size_t i = 0; i < full_bytes; ++i) {
+    uint8_t byte = 0;
+    for (size_t bit = 0; bit < 8; ++bit) {
+      size_t index = i * 8 + bit;
+      if (this->binary_payload_items_[index].binary_sensor_->state) {
+        byte |= (1 << bit);
+      }
+    }
+    bin_bytes.push_back(byte);
+  }
+  
+  if (remaining_bits > 0) {
+    uint8_t byte = 0;
+    for (size_t bit = 0; bit < remaining_bits; ++bit) {
+      size_t index = full_bytes * 8 + bit;
+      if (this->binary_payload_items_[index].binary_sensor_->state) {
+        byte |= (1 << bit);
+      }
+    }
+    bin_bytes.push_back(byte);
+  }
+  
+  return bin_bytes;
 }
 
 void LoRaBridge::setup() {
@@ -71,43 +108,68 @@ void LoRaBridge::joinLoRaWanTask(void *pvParameters) {
     while (true) {
       ESP_LOGI(TAG, "Sende Uplink...");
 
-      // 1) Gesamt-Payload-Größe
-      size_t total_size = 0;
-      for (auto &item : self->payload_items_) {
-        total_size += item.bytes_;
-      }
+        // 1) Gesamt-Payload-Größe berechnen
+        size_t total_size = 0;
 
-      // 2) Payload-Buffer anlegen
-      std::vector<uint8_t> payload(total_size, 0);
-      size_t index = 0;
-
-      // 3) Jeden Eintrag verarbeiten
-      for (auto &item : self->payload_items_) {
-        float raw_val = 0.0f;
-        if (item.sensor_ != nullptr) {
-          raw_val = item.sensor_->state;
-        } else {
-          // Sensor nicht vorhanden
+        // Größe für normale Sensoren
+        for (auto &item : self->sensor_payload_items_) {
+            total_size += item.bytes_;
         }
-        float scaled_val = raw_val * item.multiplier_ + item.offset_;
-        int32_t i_val = static_cast<int32_t>(scaled_val);
 
-        // Werte < 0 clampen? => if (i_val < 0) i_val = 0;
+        // Größe für Binary-Sensoren
+        size_t num_binary_sensors = self->binary_payload_items_.size();
+        size_t binary_bytes = (num_binary_sensors + 7) / 8; // Aufrunden auf das nächste Byte
+        total_size += binary_bytes;
 
-        // Big-Endian
-        for (int b = 0; b < item.bytes_; b++) {
-          payload[index + b] = (i_val >> (8 * (item.bytes_ - 1 - b))) & 0xFF;
+        // Optional: Maximale Payload-Größe prüfen
+        const size_t MAX_PAYLOAD_SIZE = 51;
+        if (total_size > MAX_PAYLOAD_SIZE) {
+            ESP_LOGE(TAG, "Payload-Größe überschreitet das Maximum von %d Bytes!", MAX_PAYLOAD_SIZE);
+            // Optional: Reduziere die Datenmenge oder überspringe das Senden
+            vTaskDelay(pdMS_TO_TICKS(self->uplink_interval_ * 1000));
+            continue;
         }
-        index += item.bytes_;
-      }
 
-      // 4) Senden
+        // 2) Payload-Buffer anlegen
+        std::vector<uint8_t> payload(total_size, 0);
+        size_t index = 0;
+
+        // 3) Jeden Eintrag der normalen Sensoren verarbeiten
+        for (auto &item : self->sensor_payload_items_) {
+            float raw_val = 0.0f;
+            if (item.sensor_ != nullptr) {
+                raw_val = item.sensor_->state;
+                ESP_LOGD(TAG, "Sensor %s Rohwert: %f", item.sensor_->get_name().c_str(), raw_val);
+            } else {
+                ESP_LOGW(TAG, "Ein Sensor ist nicht vorhanden.");
+            }
+
+            float scaled_val = raw_val * item.multiplier_ + item.offset_;
+            int32_t i_val = static_cast<int32_t>(scaled_val);
+            
+            // Big-Endian
+            for (int b = 0; b < item.bytes_; b++) {
+                payload[index + b] = (i_val >> (8 * (item.bytes_ - 1 - b))) & 0xFF;
+            }
+            index += item.bytes_;
+        }
+
+        // 4) Binary-Sensoren verarbeiten und hinzufügen
+        if (binary_bytes > 0) {
+            std::vector<uint8_t> bin_bytes = self->pack_binary_sensors();
+            for (size_t b = 0; b < bin_bytes.size(); ++b) {
+                payload[index + b] = bin_bytes[b];
+            }
+            index += bin_bytes.size();
+        }
+
+      // 5) Sende den Payload über LoRaWAN
       int16_t send_state = self->node.sendReceive(payload.data(), payload.size(), 2);
       if (send_state > 0) {
         ESP_LOGI(TAG, "Downlink empfangen");
       }
 
-      ESP_LOGI(TAG, "Nächster Uplink in %u Sekunden", self->uplink_interval_);
+      // 6) Warte das Uplink-Intervall ab
       vTaskDelay(self->uplink_interval_ * 1000UL / portTICK_PERIOD_MS);
     }
   }
