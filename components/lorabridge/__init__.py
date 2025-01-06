@@ -16,7 +16,6 @@ CONF_APP_KEY = "app_key"
 CONF_NWK_KEY = "nwk_key"
 CONF_UPLINK_INTERVAL = "uplink_interval"
 CONF_PAYLOAD = "payload"
-CONF_TEXT_SENSORS = "text_sensors"
 
 PAYLOAD_ITEM_SCHEMA = cv.Schema({
     cv.Required("sensor"): cv.use_id(sensor.Sensor),
