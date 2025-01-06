@@ -30,6 +30,19 @@ lorabridge:
   dev_eui: ----------------
   app_key: --------------------------------
   uplink_interval: 60                         # Is optional. Default set 60 seconds
+  payload:
+    sensors:
+      - sensor: id sensor1
+        multiplier: 1                         # Is optional. Default set by 1
+        offset: 0                             # Is optional. Default set by 0
+        bytes: 2                              # Is optional. Default set set by 2 (range 1 to 4)
+      - sensor: id sensor2
+    binary_sensors:
+      - binary_sensor: id binary_sensor1
+      - binary_sensor: id binary_sensor2
+    text_sensors:
+      - text_sensor: id text_sensor1
+      - text_sensor: id text_sensor2
 ```
 
 ## License
