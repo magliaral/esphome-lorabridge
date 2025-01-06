@@ -25,8 +25,8 @@ external_components:
 
 lorabridge:
   radio:
-    region: EU868
-    sub_band: 0                                 # Is optional. Default set by 0. For US915, change this to 2, otherwise leave on 0
+    region: EU868                             # Regional choices: EU868, US915, AU915, AS923, AS923_2, AS923_3, AS923_4, IN865, KR920, CN500
+    sub_band: 0                               # Is optional. Default set by 0. For US915, change this to 2, otherwise leave on 0
   network:
     join_eui: ----------------
     dev_eui: ----------------
