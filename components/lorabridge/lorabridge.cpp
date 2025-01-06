@@ -23,6 +23,12 @@ void LoRaBridge::add_binary_payload_item(binary_sensor::BinarySensor *bin_sens) 
   this->binary_payload_items_.push_back(item);
 }
 
+void LoRaBridge::add_text_payload_item(text_sensor::TextSensor *text_sens) {
+  TextPayloadItem item;
+  item.text_sensor_ = text_sens;
+  this->text_payload_items_.push_back(item);
+}
+
 std::vector<uint8_t> LoRaBridge::pack_binary_sensors() {
   std::vector<uint8_t> bin_bytes;
   size_t total = this->binary_payload_items_.size();
@@ -54,6 +60,28 @@ std::vector<uint8_t> LoRaBridge::pack_binary_sensors() {
   return bin_bytes;
 }
 
+std::vector<uint8_t> LoRaBridge::pack_text_sensors() {
+  std::vector<uint8_t> text_bytes;
+  
+  for (auto &item : this->text_payload_items_) {
+    std::string text = item.text_sensor_->get_state();
+    size_t len = text.length();
+
+    if (len > 255) {
+      ESP_LOGW(TAG, "Text-Sensor '%s' überschreitet die maximale Länge von 255 Bytes. Es wird abgeschnitten.", item.text_sensor_->get_name().c_str());
+      len = 255;
+      text = text.substr(0, 255);
+    }
+
+    text_bytes.push_back(static_cast<uint8_t>(len));  // Länge als vorangestelltes Byte
+    for (size_t i = 0; i < len; ++i) {
+      text_bytes.push_back(static_cast<uint8_t>(text[i]));
+    }
+  }
+  
+  return text_bytes;
+}
+
 void LoRaBridge::setup() {
   ESP_LOGI(TAG, "Setup der LoRaBridge gestartet");
   
@@ -69,7 +97,7 @@ void LoRaBridge::setup() {
 
   xTaskCreatePinnedToCore(
     joinLoRaWanTask,
-    "Join LoRaWAN Task",
+    "LoRaWAN Task",
     8192,
     this,
     1,
@@ -121,6 +149,16 @@ void LoRaBridge::joinLoRaWanTask(void *pvParameters) {
         size_t binary_bytes = (num_binary_sensors + 7) / 8; // Aufrunden auf das nächste Byte
         total_size += binary_bytes;
 
+        // Größe für Text-Sensoren
+        size_t text_bytes = 0;
+        for (auto &item : self->text_payload_items_) {
+            std::string text = item.text_sensor_->get_state();
+            size_t len = text.length();
+            if (len > 255) len = 255;  // Maximale Länge
+            text_bytes += 1 + len;     // 1 Byte für die Länge + String Bytes
+        }
+        total_size += text_bytes;
+
         // Optional: Maximale Payload-Größe prüfen
         const size_t MAX_PAYLOAD_SIZE = 51;
         if (total_size > MAX_PAYLOAD_SIZE) {
@@ -163,13 +201,22 @@ void LoRaBridge::joinLoRaWanTask(void *pvParameters) {
             index += bin_bytes.size();
         }
 
-      // 5) Sende den Payload über LoRaWAN
+        // 5) Text-Sensoren verarbeiten und hinzufügen
+        if (text_bytes > 0) {
+            std::vector<uint8_t> txt_bytes = self->pack_text_sensors();
+            for (size_t b = 0; b < txt_bytes.size(); ++b) {
+                payload[index + b] = txt_bytes[b];
+            }
+            index += txt_bytes.size();
+        }
+
+      // 6) Sende den Payload über LoRaWAN
       int16_t send_state = self->node.sendReceive(payload.data(), payload.size(), 2);
       if (send_state > 0) {
         ESP_LOGI(TAG, "Downlink empfangen");
       }
 
-      // 6) Warte das Uplink-Intervall ab
+      // 7) Warte das Uplink-Intervall ab
       vTaskDelay(self->uplink_interval_ * 1000UL / portTICK_PERIOD_MS);
     }
   }

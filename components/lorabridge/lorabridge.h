@@ -8,6 +8,7 @@
 
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
+#include "esphome/components/text_sensor/text_sensor.h"
 
 #define RADIO_BOARD_AUTO
 #include <RadioBoards.h>
@@ -31,6 +32,7 @@ class LoRaBridge : public Component {
 
   void add_sensor_payload_item(sensor::Sensor *sens, float multiplier, float offset, uint8_t bytes);
   void add_binary_payload_item(binary_sensor::BinarySensor *bin_sens);
+  void add_text_payload_item(text_sensor::TextSensor *text_sens);
 
  private:
   // LoRaWAN-Objekte und Variablen
@@ -70,12 +72,21 @@ class LoRaBridge : public Component {
     uint8_t bit_position_{0};
   };
 
+  // Struct für Text-Sensor-Payload-Elemente
+  struct TextPayloadItem {
+    text_sensor::TextSensor *text_sensor_{nullptr};
+  };
+
   // Listen aller Payload-Einträge
   std::vector<SensorPayloadItem> sensor_payload_items_;
   std::vector<BinaryPayloadItem> binary_payload_items_;
+  std::vector<TextPayloadItem> text_payload_items_;
 
   // Hilfsfunktion zum Packen der Binary-Sensoren
   std::vector<uint8_t> pack_binary_sensors();
+
+  // Hilfsfunktion zum Packen der Text-Sensoren
+  std::vector<uint8_t> pack_text_sensors();
 
 };
 

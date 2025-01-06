@@ -3,7 +3,7 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.const import CONF_ID
-from esphome.components import sensor, binary_sensor
+from esphome.components import sensor, binary_sensor, text_sensor
 
 lorabridge_ns = cg.esphome_ns.namespace("lorabridge")
 LoRaBridge = lorabridge_ns.class_("LoRaBridge", cg.Component)
@@ -16,6 +16,7 @@ CONF_APP_KEY = "app_key"
 CONF_NWK_KEY = "nwk_key"
 CONF_UPLINK_INTERVAL = "uplink_interval"
 CONF_PAYLOAD = "payload"
+CONF_TEXT_SENSORS = "text_sensors"
 
 PAYLOAD_ITEM_SCHEMA = cv.Schema({
     cv.Required("sensor"): cv.use_id(sensor.Sensor),
@@ -26,6 +27,10 @@ PAYLOAD_ITEM_SCHEMA = cv.Schema({
 
 BINARY_PAYLOAD_ITEM_SCHEMA = cv.Schema({
     cv.Required("binary_sensor"): cv.use_id(binary_sensor.BinarySensor),
+})
+
+PAYLOAD_TEXT_ITEM_SCHEMA = cv.Schema({
+    cv.Required("text_sensor"): cv.use_id(text_sensor.TextSensor),
 })
 
 CONFIG_SCHEMA = cv.Schema(
@@ -41,6 +46,7 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_PAYLOAD, default={}): cv.Schema({
             cv.Optional("sensors", default=[]): cv.ensure_list(PAYLOAD_ITEM_SCHEMA),
             cv.Optional("binary_sensors", default=[]): cv.ensure_list(BINARY_PAYLOAD_ITEM_SCHEMA),
+            cv.Optional("text_sensors", default=[]): cv.ensure_list(PAYLOAD_TEXT_ITEM_SCHEMA),
         }),
     }
 ).extend(cv.COMPONENT_SCHEMA)
@@ -114,8 +120,13 @@ async def to_code(config):
         offset = item["offset"]
         bytes_ = item["bytes"]
         cg.add(var.add_sensor_payload_item(sens_var, multiplier, offset, bytes_))
-    
+        
     # Binary Sensor-Payload verarbeiten
     for item in config[CONF_PAYLOAD].get("binary_sensors", []):
         bin_sens_var = await cg.get_variable(item["binary_sensor"])
         cg.add(var.add_binary_payload_item(bin_sens_var))
+
+    # Text Sensor-Payload verarbeiten
+    for item in config[CONF_PAYLOAD].get("text_sensors", []):
+        text_sens_var = await cg.get_variable(item["text_sensor"])
+        cg.add(var.add_text_payload_item(text_sens_var))
