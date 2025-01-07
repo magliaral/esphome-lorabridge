@@ -1,0 +1,202 @@
+function decode16BitSignedValue(bytes, startIndex, multiplier) {
+  // Big-Endian 16-Bit Wert lesen
+  var raw = (bytes[startIndex] << 8) | bytes[startIndex + 1];
+
+  // Sign-Extension für signed 16-Bit
+  if (raw & 0x8000) { // Prüft das Vorzeichenbit (MSB)
+      raw = raw - 0x10000; // In signed 16-Bit umwandeln
+  }
+
+  // Rückrechnen mit dem Multiplikator
+  return raw / multiplier;
+}
+
+function decode16BitUnsignedValue(bytes, startIndex, multiplier) {
+  // Rohwert aus den Bytes lesen
+  var raw = (bytes[startIndex] << 8) | bytes[startIndex + 1];
+
+  // Rückrechnen mit dem Multiplikator
+  return raw / multiplier;
+}
+
+function decode8BitSignedValue(bytes, startIndex, multiplier) {
+  // Rohwert aus den Bytes lesen
+  var raw = bytes[startIndex];
+
+  // Sign-Extension für signed 8-Bit
+  if (raw & 0x80) { // Prüft das Vorzeichenbit (MSB)
+      raw = raw - 0x100; // In signed 8-Bit umwandeln
+  }
+
+  // Rückrechnen mit dem Multiplikator
+  return raw / multiplier;
+}
+
+function decode8BitUnsignedValue(bytes, startIndex, multiplier) {
+  // Rohwert aus den Bytes lesen
+  var raw = bytes[startIndex];
+
+  // Rückrechnen mit dem Multiplikator
+  return raw / multiplier;
+}
+
+function decodeBinaryValue(bytes, startIndex, bitIndex) {
+  return ((bytes[startIndex] >> bitIndex) & 1) === 1 ? "on" : "off";
+}
+
+function decodeTextValue(bytes, startIndex) {
+    // Lesen der Länge des Textes aus dem vorangestellten Byte
+    var len = bytes[startIndex];
+    var text = "";
+
+    // Lesen der Zeichen basierend auf der Länge
+    for (var i = 0; i < len; i++) {
+        text += String.fromCharCode(bytes[startIndex + 1 + i]);
+    }
+    
+    if (text == "Off") {
+      return "off";
+    }
+
+    return text;
+}
+
+function decodeUplink(input) {
+  var mpptPower = decode16BitSignedValue(input.bytes, 0, 1);
+  var mpptCurrent = decode16BitSignedValue(input.bytes, 2, 10);
+  var mpptYieldToday = decode16BitSignedValue(input.bytes, 4, 100);
+  var batteryVoltage = decode16BitSignedValue(input.bytes, 6, 100);
+  var batteryPower = decode16BitSignedValue(input.bytes, 8, 100);
+  var batteryCurrent = decode16BitSignedValue(input.bytes, 10, 1000);
+  var batteryConsumedAh = decode16BitSignedValue(input.bytes, 12, 10);
+  var batteryStateOfCharge = decode16BitUnsignedValue(input.bytes, 14, 10);
+  var batteryTimeRemaining = decode16BitUnsignedValue(input.bytes, 16, 1);
+  var batteryTemperature = decode16BitSignedValue(input.bytes, 18, 100);
+  
+  var batteryAlarm = decodeBinaryValue(input.bytes, 20, 0);
+  var mpptFault = decodeBinaryValue(input.bytes, 20, 1);
+  var mpptError = decodeBinaryValue(input.bytes, 20, 2);
+  
+    // Startindex für Text-Sensoren
+  var currentIndex = 21;
+  
+  // Dekodierung der Text-Sensoren
+  var mpptState = decodeTextValue(input.bytes, currentIndex);
+  // Aktualisieren des Index basierend auf der Länge des dekodierten Textes
+  currentIndex += 1 + mpptState.length;
+  
+  var mpptErrorReason = decodeTextValue(input.bytes, currentIndex);
+  // Aktualisieren des Index, falls weitere Text-Sensoren folgen
+  currentIndex += 1 + mpptErrorReason.length;
+  
+  var batteryAlarmReason = decodeTextValue(input.bytes, currentIndex);
+  // Aktualisieren des Index, falls weitere Text-Sensoren folgen
+  currentIndex += 1 + batteryAlarmReason.length;
+
+  return {
+      data: {
+          mpptPower: {
+            "value": mpptPower,
+            "state_class": "measurement",
+            "unit_of_measurement": "W", 
+            "device_class": "power",
+            "friendly_name": "MPPT Power"
+          },
+          mpptCurrent: {
+            "value": mpptCurrent,
+            "state_class": "measurement",
+            "unit_of_measurement": "A", 
+            "device_class": "current",
+            "friendly_name": "MPPT Current"
+          },
+          mpptYieldToday: {
+            "value": mpptYieldToday,
+            "state_class": "total",
+            "unit_of_measurement": "kWh", 
+            "device_class": "energy",
+            "friendly_name": "MPPT Yield Today"
+          },
+          mpptYield: {
+            "value": mpptYieldToday,
+            "state_class": "total_increasing",
+            "unit_of_measurement": "kWh", 
+            "device_class": "energy",
+            "friendly_name": "MPPT Yield"
+          },
+          mpptFault: {
+            "value": mpptFault,
+            "friendly_name": "MPPT Fault"
+          },
+          batteryConsumedAh: {
+            "value": batteryConsumedAh,
+            "state_class": "measurement",
+            "unit_of_measurement": "Ah", 
+            "device_class": "current",
+            "friendly_name": "Battery Consumed Ah"
+          },
+          batteryCurrent: {
+            "value": batteryCurrent,
+            "state_class": "measurement",
+            "unit_of_measurement": "A", 
+            "device_class": "current",
+            "friendly_name": "Battery Current"
+          },
+          batteryPower: {
+            "value": batteryPower,
+            "state_class": "measurement",
+            "unit_of_measurement": "W", 
+            "device_class": "power",
+            "friendly_name": "Battery Power"
+          },
+          batteryVoltage: {
+            "value": batteryVoltage,
+            "state_class": "measurement",
+            "unit_of_measurement": "V", 
+            "device_class": "voltage",
+            "friendly_name": "Battery Voltage"
+          },
+          batteryStateOfCharge: {
+            "value": batteryStateOfCharge,
+            "state_class": "measurement",
+            "unit_of_measurement": "%", 
+            "device_class": "battery",
+            "friendly_name": "Battery SoC"
+          },
+          batteryTimeRemaining: {
+            "value": batteryTimeRemaining,
+            "state_class": "measurement",
+            "unit_of_measurement": "min", 
+            "device_class": "duration",
+            "friendly_name": "Battery Time Remaining"
+          },
+          batteryTemperature: {
+            "value": batteryTemperature,
+            "state_class": "measurement",
+            "unit_of_measurement": "°C", 
+            "device_class": "temperature",
+            "friendly_name": "Battery Temperature"
+          },
+          batteryAlarm: {
+            "value": batteryAlarm,
+            "friendly_name": "Battery has Alarm"
+          },
+          mpptError: {
+            "value": mpptError,
+            "friendly_name": "MPPT Error"
+          },
+          mpptState: {
+            "value": mpptState,
+            "friendly_name": "MPPT State"
+          },
+          mpptErrorReason: {
+            "value": mpptErrorReason,
+            "friendly_name": "MPPT Error Reason"
+          },
+          batteryAlarmReason: {
+            "value": batteryAlarmReason,
+            "friendly_name": "Battery Alarm Reason"
+          },
+          
+      }
+  };
+}
