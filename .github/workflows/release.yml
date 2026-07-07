@@ -1,0 +1,133 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    # No release for docs:/style: commits or merge commits
+    if: >
+      !startsWith(github.event.head_commit.message, 'docs:')
+      && !startsWith(github.event.head_commit.message, 'style:')
+      && !startsWith(github.event.head_commit.message, 'Merge ')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # required for git describe & tags
+
+      #############################################
+      # Determine bump type from commit message
+      #############################################
+
+      - name: Determine bump type from commit message
+        id: bump
+        run: |
+          # Parse the subject line only (conventional commits live there); the
+          # body is checked solely for a BREAKING CHANGE footer.
+          SUBJECT=$(git log -1 --pretty=format:"%s")
+          BODY=$(git log -1 --pretty=format:"%b")
+          echo "Subject: $SUBJECT"
+
+          # Conventional Commits: type(scope)!: — the (scope) and the ! are
+          # optional, so 'feat(ui):' must bump exactly like 'feat:'.
+          SCOPE='(\([^)]*\))?'
+
+          TYPE="none"
+
+          # MAJOR: type! (with optional scope) OR a BREAKING CHANGE footer
+          if echo "$SUBJECT" | grep -qiE "^(feat|fix|refactor|perf)${SCOPE}!:" \
+             || echo "$BODY" | grep -qiE "^BREAKING[ -]CHANGE:"; then
+            TYPE="major"
+
+          # MINOR: feat
+          elif echo "$SUBJECT" | grep -qiE "^feat${SCOPE}:"; then
+            TYPE="minor"
+
+          # PATCH: fix, refactor, perf, chore, test, ci, build
+          elif echo "$SUBJECT" | grep -qiE "^(fix|refactor|perf|chore|test|ci|build)${SCOPE}:"; then
+            TYPE="patch"
+
+          # docs:/style: (and anything else) -> none
+          fi
+
+          echo "Bump type: $TYPE"
+          echo "type=$TYPE" >> $GITHUB_OUTPUT
+
+      #############################################
+      # Compute next version from git tags
+      #############################################
+
+      - name: Compute next version from tags
+        id: version
+        run: |
+          TYPE=${{ steps.bump.outputs.type }}
+
+          # Find the last tag, fallback 0.0.0. The v prefix is optional so
+          # the pre-release tag 0.1.0 (without v) counts as well.
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "0.0.0")
+          echo "Last tag: $LAST_TAG"
+
+          BASE=${LAST_TAG#v}
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE"
+
+          if [ "$TYPE" = "none" ]; then
+            NEW="$BASE"
+          else
+            if [ "$TYPE" = "major" ]; then
+              MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0
+            elif [ "$TYPE" = "minor" ]; then
+              MINOR=$((MINOR + 1)); PATCH=0
+            else
+              PATCH=$((PATCH + 1))
+            fi
+            NEW="$MAJOR.$MINOR.$PATCH"
+          fi
+
+          echo "Computed new version: $NEW (type=$TYPE)"
+          echo "new=$NEW" >> $GITHUB_OUTPUT
+          echo "major=$MAJOR" >> $GITHUB_OUTPUT
+          echo "bump_type=$TYPE" >> $GITHUB_OUTPUT
+
+      #############################################
+      # Create git tag + GitHub release
+      #############################################
+
+      - name: Create annotated git tag with commit message
+        if: steps.version.outputs.bump_type != 'none'
+        run: |
+          NEW="${{ steps.version.outputs.new }}"
+          MSG="$(git log -1 --pretty=%B)"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          echo "Creating tag v${NEW}"
+          git tag -a "v${NEW}" -m "$MSG"
+          git push origin "v${NEW}"
+
+      - name: Create GitHub release
+        if: steps.version.outputs.bump_type != 'none'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NEW="${{ steps.version.outputs.new }}"
+
+          # Mark 0.x releases as pre-release (not yet stable)
+          FLAGS=""
+          if [ "${{ steps.version.outputs.major }}" = "0" ]; then
+            FLAGS="--prerelease"
+          fi
+
+          gh release create "v${NEW}" \
+            --title "v${NEW}" \
+            --generate-notes \
+            $FLAGS
