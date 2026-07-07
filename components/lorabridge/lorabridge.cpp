@@ -133,11 +133,11 @@ void LoRaBridge::setup() {
   pinMode(10, OUTPUT);   // W5500 Ethernet CS
   digitalWrite(10, HIGH);
 
-  // WICHTIG: Kein eigener Arduino-SPI-Bus! Display (ESPHome/IDF) und SX1262
-  // teilen sich physisch die Pins 11/12/13. Ein zweiter SPI-Host (HSPI) auf
-  // denselben Pins wuerde die GPIO-Matrix umhaengen und das Display trennen.
-  // Stattdessen: Custom HAL, der sich als Device am bestehenden IDF-Bus
-  // (SPI2_HOST, von ESPHomes spi:-Komponente initialisiert) registriert.
+  // IMPORTANT: No dedicated Arduino SPI bus! The display (ESPHome/IDF) and
+  // the radio physically share pins 11/12/13. A second SPI host (HSPI) on
+  // the same pins would remap the GPIO matrix and disconnect the display.
+  // Instead, a custom HAL registers as a device on the existing IDF bus
+  // (SPI2_HOST, initialized by ESPHome's spi: component).
   this->hal_ = new ESPHomeSPIHal(nss_pin_);
   Module *mod = new Module(this->hal_, nss_pin_, irq_pin_, rst_pin_, busy_pin_);
 
@@ -160,9 +160,9 @@ void LoRaBridge::setup() {
   // LoRaWAN Node
   node_ = new LoRaWANNode(radio_, &region_, sub_band_);
 
-  // LoRaWAN 1.0.x: nwkKey MUSS nullptr sein, sonst faehrt RadioLib 1.1-Semantik
-  // und die Session-Keys passen nicht zu einem 1.0.4-Device in TTN.
-  // Nur wenn explizit ein nwk_key gesetzt wurde (LoRaWAN 1.1), wird er uebergeben.
+  // LoRaWAN 1.0.x: nwkKey MUST be nullptr, otherwise RadioLib switches to
+  // 1.1 key derivation and the session keys won't match a 1.0.4 device in TTN.
+  // Only pass nwk_key when it was explicitly configured (LoRaWAN 1.1).
   bool has_nwk_key = false;
   for (uint8_t b : nwk_key_) {
     if (b != 0) { has_nwk_key = true; break; }
@@ -175,8 +175,8 @@ void LoRaBridge::setup() {
     return;
   }
 
-  // Persistierte Nonces wiederherstellen (DevNonce muss ueber Reboots
-  // monoton steigen, sonst verwirft TTN die Join-Requests)
+  // Restore persisted nonces (DevNonce must increase monotonically across
+  // reboots, otherwise TTN rejects the join requests)
   this->nonces_pref_ = global_preferences->make_preference<NoncesBuffer>(
       fnv1_hash("lorabridge_nonces"));
   NoncesBuffer stored;
@@ -203,8 +203,8 @@ void LoRaBridge::setup() {
       while (!self->joined_) {
         ESP_LOGI(TAG, "Join attempt...");
         int16_t s = self->node_->activateOTAA();
-        // Nonces nach JEDEM Versuch sichern - der DevNonce zaehlt pro
-        // Join-Request hoch, nicht erst bei Erfolg.
+        // Save nonces after EVERY attempt - the DevNonce increments per
+        // join request, not only on success.
         self->save_nonces_();
         if (s == RADIOLIB_LORAWAN_NEW_SESSION || s == RADIOLIB_ERR_NONE) {
           ESP_LOGI(TAG, "LoRaWAN join successful! (state=%d)", s);
@@ -262,18 +262,6 @@ void LoRaBridge::dump_config() {
   ESP_LOGCONFIG(TAG, "  Chip: %s", chip_.c_str());
   ESP_LOGCONFIG(TAG, "  Pins: NSS=%d, RST=%d, IRQ=%d, BUSY=%d, GPIO=%d",
                 nss_pin_, rst_pin_, irq_pin_, busy_pin_, gpio_pin_);
-}
-
-
-// --- Helper ---
-
-String LoRaBridge::stateDecode(const int16_t result) {
-  switch (result) {
-    case RADIOLIB_ERR_NONE:
-      return "ERR_NONE";
-    default:
-      return "See https://jgromes.github.io/RadioLib/group__status__codes.html";
-  }
 }
 
 }  // namespace lorabridge

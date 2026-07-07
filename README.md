@@ -1,10 +1,19 @@
 # esphome-lorabridge
 
-ESPHome LoRaBridge is a custom component for transmitting sensor values over LoRaWAN using the RadioLib library.
+ESPHome LoRaBridge is a custom component for transmitting sensor values over LoRaWAN (OTAA) using the [RadioLib](https://github.com/jgromes/RadioLib) library.
+
+## Features
+
+- LoRaWAN 1.0.4 OTAA join with DevNonce persistence in flash (joins survive reboots without enabling "resets join nonces" in TTN)
+- Optional `nwk_key` for LoRaWAN 1.1 networks
+- Shares ESPHome's existing SPI bus with other devices (e.g. a display) via a custom RadioLib HAL with proper bus arbitration
+- Configurable payload built from ESPHome sensors, binary sensors, and text sensors
+
+Tested on a LILYGO T-Connect-Pro (ESP32-S3, SX1262) against The Things Network, EU868.
 
 ## Usage with ESPHome
 
-To use this component in ESPHome, add the following configuration to your `esphome.yaml`:
+Add the following configuration to your ESPHome YAML:
 
 ```yaml
 esphome:
@@ -15,43 +24,52 @@ esphome:
     lib_ldf_mode: chain+
     lib_deps:
       - jgromes/RadioLib@^7.1.1
-      - https://github.com/radiolib-org/RadioBoards.git
 
 external_components:
   - source:
       type: git
       url: https://github.com/magliaral/esphome-lorabridge.git
-      ref: 0.1.0
+      ref: main
 
 lorabridge:
-  region: EU868
-  sub_band: 0                                 # Is optional. Default set by 0. For US915, change this to 2, otherwise leave on 0
-  join_eui: ----------------
-  dev_eui: ----------------
-  app_key: --------------------------------
-  uplink_interval: 60                         # Is optional. Default set 60 seconds
+  region: EU868                # EU868, US915, AU915, AS923, AS923_2, AS923_3, AS923_4, IN865, KR920, CN500
+  sub_band: 0                  # Optional, default 0. For US915/AU915 set the sub-band used by your network (e.g. 2 for TTN US915)
+  join_eui: ----------------   # 16 hex characters
+  dev_eui: ----------------    # 16 hex characters
+  app_key: --------------------------------  # 32 hex characters
+  # nwk_key: ------------------------------  # Optional, only for LoRaWAN 1.1 networks. Omit for LoRaWAN 1.0.x (TTN)
+  uplink_interval: 60          # Optional, default 60 seconds
   payload:
     sensors:
-      - sensor: id sensor1
-        multiplier: 1                         # Is optional. Default set by 1
-        offset: 0                             # Is optional. Default set by 0
-        bytes: 2                              # Is optional. Default set set by 2 (range 1 to 4)
-      - sensor: id sensor2
+      - sensor: sensor1_id
+        multiplier: 1          # Optional, default 1
+        offset: 0              # Optional, default 0
+        bytes: 2               # Optional, default 2 (range 1 to 4)
+      - sensor: sensor2_id
     binary_sensors:
-      - binary_sensor: id binary_sensor1
-      - binary_sensor: id binary_sensor2
+      - binary_sensor: binary_sensor1_id
+      - binary_sensor: binary_sensor2_id
     text_sensors:
-      - text_sensor: id text_sensor1
-      - text_sensor: id text_sensor2
+      - text_sensor: text_sensor1_id
+      - text_sensor: text_sensor2_id
 ```
 
-## License
-This project is licensed under the [MIT License](LICENSE).
-This project uses the following libraries:
-1. **RadioLib**
-   - License: [LGPL-3.0](https://opensource.org/licenses/LGPL-3.0)  
-   - For more details, see the [RadioLib GitHub repository](https://github.com/jgromes/RadioLib).
+## Payload format
 
-2. **RadioBoards**  
-   - License: [MIT](https://opensource.org/licenses/MIT)  
-   - For more information, see the [RadioBoards GitHub repository](https://github.com/radiolib-org/RadioBoards).
+The uplink payload is packed in this order:
+
+1. **Sensors:** each value is sent as a big-endian signed integer of `bytes` length, computed as `value * multiplier + offset`
+2. **Binary sensors:** packed as bits, 8 per byte (LSB first)
+3. **Text sensors:** each prefixed with a length byte, followed by the raw characters (max. 255 bytes)
+
+The total payload must fit within 51 bytes (LoRaWAN DR0 limit).
+
+[decode.ttn](decode.ttn) contains an example uplink decoder for The Things Network matching this format.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+
+It uses the following library:
+
+- **RadioLib** — [LGPL-3.0](https://opensource.org/licenses/LGPL-3.0), see the [RadioLib GitHub repository](https://github.com/jgromes/RadioLib)

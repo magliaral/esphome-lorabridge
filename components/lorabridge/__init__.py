@@ -13,6 +13,17 @@ CONF_APP_KEY = "app_key"
 CONF_NWK_KEY = "nwk_key"
 CONF_UPLINK_INTERVAL = "uplink_interval"
 
+
+def validate_hex_length(value, length, name):
+    if len(value) != length:
+        raise cv.Invalid(f"{name} must be exactly {length} characters long")
+    try:
+        int(value, 16)
+    except ValueError:
+        raise cv.Invalid(f"{name} must be a valid hex string")
+    return value
+
+
 CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(LoRaBridge),
@@ -26,20 +37,12 @@ CONFIG_SCHEMA = cv.Schema(
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
-def validate_hex_length(value, length, name):
-    if len(value) != length:
-        raise cv.Invalid(f"{name} muss genau {length} Zeichen lang sein")
-    try:
-        int(value, 16)
-    except ValueError:
-        raise cv.Invalid(f"{name} muss ein gültiger HEX-String sein")
-    return value
 
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
 
-    # **Setze die Region basierend auf der YAML-Konfiguration**
+    # region (RadioLib band constant, e.g. EU868)
     region_str = config[CONF_REGION]
     region_expr = cg.RawExpression(f"{region_str}")
     cg.add(var.set_region(region_expr))
@@ -62,12 +65,12 @@ async def to_code(config):
     try:
         app_key_bytes = bytes.fromhex(app_key_str)
     except ValueError:
-        raise cv.Invalid("app_key muss ein gültiger HEX-String sein")
-    
+        raise cv.Invalid("app_key must be a valid hex string")
+
     if len(app_key_bytes) != 16:
-        raise cv.Invalid("app_key muss 32 HEX-Zeichen enthalten (16 Bytes)")
-    
-    # Erstellen einer C++ Initializer-Liste für std::array<uint8_t, 16>
+        raise cv.Invalid("app_key must contain 32 hex characters (16 bytes)")
+
+    # Build a C++ initializer list for std::array<uint8_t, 16>
     app_key_expr = "std::array<uint8_t, 16>{" + ", ".join(f"0x{b:02X}" for b in app_key_bytes) + "}"
     app_key_initializer = cg.RawExpression(app_key_expr)
     cg.add(var.set_app_key(app_key_initializer))
@@ -77,12 +80,12 @@ async def to_code(config):
     try:
         nwk_key_bytes = bytes.fromhex(nwk_key_str)
     except ValueError:
-        raise cv.Invalid("nwk_key muss ein gültiger HEX-String sein")
-    
+        raise cv.Invalid("nwk_key must be a valid hex string")
+
     if len(nwk_key_bytes) != 16:
-        raise cv.Invalid("nwk_key muss 32 HEX-Zeichen enthalten (16 Bytes)")
-    
-    # Erstellen einer C++ Initializer-Liste für std::array<uint8_t, 16>
+        raise cv.Invalid("nwk_key must contain 32 hex characters (16 bytes)")
+
+    # Build a C++ initializer list for std::array<uint8_t, 16>
     nwk_key_expr = "std::array<uint8_t, 16>{" + ", ".join(f"0x{b:02X}" for b in nwk_key_bytes) + "}"
     nwk_key_initializer = cg.RawExpression(nwk_key_expr)
     cg.add(var.set_nwk_key(nwk_key_initializer))

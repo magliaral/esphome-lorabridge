@@ -1,42 +1,42 @@
 function decode16BitSignedValue(bytes, startIndex, multiplier) {
-  // Big-Endian 16-Bit Wert lesen
+  // Read big-endian 16-bit value
   var raw = (bytes[startIndex] << 8) | bytes[startIndex + 1];
 
-  // Sign-Extension für signed 16-Bit
-  if (raw & 0x8000) { // Prüft das Vorzeichenbit (MSB)
-      raw = raw - 0x10000; // In signed 16-Bit umwandeln
+  // Sign extension for signed 16-bit
+  if (raw & 0x8000) { // check the sign bit (MSB)
+      raw = raw - 0x10000; // convert to signed 16-bit
   }
 
-  // Rückrechnen mit dem Multiplikator
+  // Scale back using the multiplier
   return raw / multiplier;
 }
 
 function decode16BitUnsignedValue(bytes, startIndex, multiplier) {
-  // Rohwert aus den Bytes lesen
+  // Read raw value from the bytes
   var raw = (bytes[startIndex] << 8) | bytes[startIndex + 1];
 
-  // Rückrechnen mit dem Multiplikator
+  // Scale back using the multiplier
   return raw / multiplier;
 }
 
 function decode8BitSignedValue(bytes, startIndex, multiplier) {
-  // Rohwert aus den Bytes lesen
+  // Read raw value from the bytes
   var raw = bytes[startIndex];
 
-  // Sign-Extension für signed 8-Bit
-  if (raw & 0x80) { // Prüft das Vorzeichenbit (MSB)
-      raw = raw - 0x100; // In signed 8-Bit umwandeln
+  // Sign extension for signed 8-bit
+  if (raw & 0x80) { // check the sign bit (MSB)
+      raw = raw - 0x100; // convert to signed 8-bit
   }
 
-  // Rückrechnen mit dem Multiplikator
+  // Scale back using the multiplier
   return raw / multiplier;
 }
 
 function decode8BitUnsignedValue(bytes, startIndex, multiplier) {
-  // Rohwert aus den Bytes lesen
+  // Read raw value from the bytes
   var raw = bytes[startIndex];
 
-  // Rückrechnen mit dem Multiplikator
+  // Scale back using the multiplier
   return raw / multiplier;
 }
 
@@ -45,11 +45,11 @@ function decodeBinaryValue(bytes, startIndex, bitIndex) {
 }
 
 function decodeTextValue(bytes, startIndex) {
-    // Lesen der Länge des Textes aus dem vorangestellten Byte
+    // Read the text length from the leading byte
     var len = bytes[startIndex];
     var text = "";
 
-    // Lesen der Zeichen basierend auf der Länge
+    // Read the characters based on the length
     for (var i = 0; i < len; i++) {
         text += String.fromCharCode(bytes[startIndex + 1 + i]);
     }
@@ -77,20 +77,18 @@ function decodeUplink(input) {
   var mpptFault = decodeBinaryValue(input.bytes, 20, 1);
   var mpptError = decodeBinaryValue(input.bytes, 20, 2);
   
-    // Startindex für Text-Sensoren
+  // Start index for text sensors
   var currentIndex = 21;
-  
-  // Dekodierung der Text-Sensoren
+
+  // Decode the text sensors, advancing the index by
+  // 1 length byte + text length each time
   var mpptState = decodeTextValue(input.bytes, currentIndex);
-  // Aktualisieren des Index basierend auf der Länge des dekodierten Textes
   currentIndex += 1 + mpptState.length;
-  
+
   var mpptErrorReason = decodeTextValue(input.bytes, currentIndex);
-  // Aktualisieren des Index, falls weitere Text-Sensoren folgen
   currentIndex += 1 + mpptErrorReason.length;
-  
+
   var batteryAlarmReason = decodeTextValue(input.bytes, currentIndex);
-  // Aktualisieren des Index, falls weitere Text-Sensoren folgen
   currentIndex += 1 + batteryAlarmReason.length;
 
   return {

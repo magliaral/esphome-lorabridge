@@ -20,10 +20,10 @@ class LoRaBridge : public Component {
   void setup() override;
   void loop() override;
   void dump_config() override;
-  // Nach dem SPI-Bus, aber vor den "normalen" Komponenten initialisieren
+  // Initialize after the SPI bus, but before the "regular" components
   float get_setup_priority() const override { return setup_priority::DATA; }
 
-  // LoRaWAN-Config Setter
+  // LoRaWAN config setters
   void set_region(const LoRaWANBand_t &region) { this->region_ = region; }
   void set_sub_band(uint8_t sub_band) { this->sub_band_ = sub_band; }
   void set_join_eui(uint64_t join_eui) { this->join_eui_ = join_eui; }
@@ -32,7 +32,7 @@ class LoRaBridge : public Component {
   void set_nwk_key(const std::array<uint8_t, 16> &nwk_key) { this->nwk_key_ = nwk_key; }
   void set_uplink_interval(uint32_t uplink_interval) { this->uplink_interval_ = uplink_interval; }
 
-  // Chip + Pin Setter
+  // Chip + pin setters
   void set_chip(const std::string &chip) { this->chip_ = chip; }
   void set_nss_pin(int8_t pin) { this->nss_pin_ = pin; }
   void set_rst_pin(int8_t pin) { this->rst_pin_ = pin; }
@@ -74,8 +74,8 @@ class LoRaBridge : public Component {
   uint32_t uplink_interval_;
   int16_t state_;
 
-  // DevNonce/JoinNonce-Persistenz (LoRaWAN 1.0.4 verlangt monoton
-  // steigende DevNonces ueber Reboots hinweg)
+  // DevNonce/JoinNonce persistence (LoRaWAN 1.0.4 requires DevNonces
+  // to increase monotonically across reboots)
   using NoncesBuffer = std::array<uint8_t, RADIOLIB_LORAWAN_NONCES_BUF_SIZE>;
   ESPPreferenceObject nonces_pref_;
   void save_nonces_();
@@ -84,11 +84,7 @@ class LoRaBridge : public Component {
   PhysicalLayer *createRadio(Module *mod, int16_t &state);
 
   // Configuration
-  static const uint8_t MAX_JOIN_ATTEMPTS = 0;
   static const uint32_t JOIN_DELAY_MS = 30000;
-
-  // Helpers
-  String stateDecode(const int16_t result);
 
   // Payload structs
   struct SensorPayloadItem {
