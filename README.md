@@ -32,21 +32,17 @@ external_components:
       ref: main                # or pin a release tag, e.g. ref: v0.2.0
 
 lorabridge:
-  region: EU868                # EU868, US915, AU915, AS923, AS923_2, AS923_3, AS923_4, IN865, KR920, CN500
-  sub_band: 0                  # Optional, default 0. For US915/AU915 set the sub-band used by your network (e.g. 2 for TTN US915)
-  join_eui: ----------------   # 16 hex characters
-  dev_eui: ----------------    # 16 hex characters
-  app_key: --------------------------------  # 32 hex characters
-  # nwk_key: ------------------------------  # Optional, only for LoRaWAN 1.1 networks. Omit for LoRaWAN 1.0.x (TTN)
-  uplink_interval: 60          # Optional, default 60 seconds
-  join_dr: 0                   # Optional, default 0. Data rate for the OTAA join (EU868: 0 = SF12/max range ... 5 = SF7)
-  scan_guard: 50               # Optional, default 50 ms. How much earlier RX windows open; increase if downlinks are missed
+  region: EU868
+  join_eui: ----------------
+  dev_eui: ----------------
+  app_key: --------------------------------
+  uplink_interval: 60
   payload:
     sensors:
       - sensor: sensor1_id
-        multiplier: 1          # Optional, default 1
-        offset: 0              # Optional, default 0
-        bytes: 2               # Optional, default 2 (range 1 to 4)
+        multiplier: 1
+        offset: 0
+        bytes: 2
       - sensor: sensor2_id
     binary_sensors:
       - binary_sensor: binary_sensor1_id
@@ -55,6 +51,28 @@ lorabridge:
       - text_sensor: text_sensor1_id
       - text_sensor: text_sensor2_id
 ```
+
+## Configuration variables
+
+- **region** (**Required**): LoRaWAN region/band plan. One of `EU868`, `US915`, `AU915`, `AS923`, `AS923_2`, `AS923_3`, `AS923_4`, `IN865`, `KR920`, `CN500`.
+- **sub_band** (*Optional*, default `0`): Sub-band for regions with more than 8 uplink channels, e.g. `2` for TTN US915. Leave at `0` for EU868.
+- **join_eui** (**Required**): JoinEUI (AppEUI), 16 hex characters.
+- **dev_eui** (**Required**): DevEUI, 16 hex characters.
+- **app_key** (**Required**): AppKey, 32 hex characters.
+- **nwk_key** (*Optional*): NwkKey, 32 hex characters. Only for LoRaWAN 1.1 networks — omit it for LoRaWAN 1.0.x (e.g. TTN), otherwise the join uses 1.1 key derivation and fails.
+- **uplink_interval** (*Optional*, default `60`): Seconds between uplinks. Mind the regional duty cycle and the TTN Fair Use Policy: at `join_dr: 0` (SF12) a full uplink takes ~2.8 s airtime, so an interval of 300 s or more is appropriate.
+- **join_dr** (*Optional*, default `0`): Data rate for the OTAA join and the initial session. `0` (EU868: SF12/125 kHz) maximizes link budget and range; higher values (EU868: up to `5` = SF7) are faster and use far less airtime. Keep the default on marginal links.
+- **scan_guard** (*Optional*, default `50`): Milliseconds by which RX windows open early. Increase if downlinks or join-accepts are missed (RadioLib error -1116).
+- **payload**: Defines what is transmitted, in this order:
+  - **sensors** (*Optional*): List of numeric sensors.
+    - **sensor** (**Required**): The sensor ID.
+    - **multiplier** (*Optional*, default `1`): Value is sent as `value * multiplier + offset`, rounded to an integer.
+    - **offset** (*Optional*, default `0`): See above.
+    - **bytes** (*Optional*, default `2`): Encoded size in bytes, range 1 to 4.
+  - **binary_sensors** (*Optional*): List of binary sensors, packed as bits.
+    - **binary_sensor** (**Required**): The binary sensor ID.
+  - **text_sensors** (*Optional*): List of text sensors, each sent with a length byte prefix.
+    - **text_sensor** (**Required**): The text sensor ID.
 
 ## Payload format
 
