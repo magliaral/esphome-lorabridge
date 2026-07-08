@@ -12,6 +12,8 @@ CONF_DEV_EUI = "dev_eui"
 CONF_APP_KEY = "app_key"
 CONF_NWK_KEY = "nwk_key"
 CONF_UPLINK_INTERVAL = "uplink_interval"
+CONF_JOIN_DR = "join_dr"
+CONF_SCAN_GUARD = "scan_guard"
 
 
 def validate_hex_length(value, length, name):
@@ -34,6 +36,8 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Required(CONF_APP_KEY): cv.All(cv.string, lambda value: validate_hex_length(value, 32, "app_key")),
         cv.Optional(CONF_NWK_KEY, default="00000000000000000000000000000000"): cv.All(cv.string, lambda value: validate_hex_length(value, 32, "nwk_key")),
         cv.Optional(CONF_UPLINK_INTERVAL, default=60): cv.uint32_t,
+        cv.Optional(CONF_JOIN_DR, default=0): cv.int_range(min=0, max=15),
+        cv.Optional(CONF_SCAN_GUARD, default=50): cv.uint16_t,
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -92,3 +96,9 @@ async def to_code(config):
 
     # uplink_interval
     cg.add(var.set_uplink_interval(config[CONF_UPLINK_INTERVAL]))
+
+    # join_dr
+    cg.add(var.set_join_dr(config[CONF_JOIN_DR]))
+
+    # scan_guard
+    cg.add(var.set_scan_guard(config[CONF_SCAN_GUARD]))

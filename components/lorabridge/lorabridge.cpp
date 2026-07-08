@@ -175,6 +175,11 @@ void LoRaBridge::setup() {
     return;
   }
 
+  // Open RX windows earlier: the HAL's byte-wise polling SPI makes radio
+  // configuration a few ms slower than RadioLib assumes internally.
+  // Without this guard the (join) downlink preamble is missed -> ERR -1116.
+  node_->scanGuard = scan_guard_;
+
   // Restore persisted nonces (DevNonce must increase monotonically across
   // reboots, otherwise TTN rejects the join requests)
   this->nonces_pref_ = global_preferences->make_preference<NoncesBuffer>(
@@ -202,7 +207,10 @@ void LoRaBridge::setup() {
       // Join loop
       while (!self->joined_) {
         ESP_LOGI(TAG, "Join attempt...");
-        int16_t s = self->node_->activateOTAA();
+        // Join at the configured data rate. The default DR0 (EU868:
+        // SF12/125kHz) maximizes the link budget, adding margin for both
+        // the join request AND the join-accept downlink.
+        int16_t s = self->node_->activateOTAA(self->join_dr_);
         // Save nonces after EVERY attempt - the DevNonce increments per
         // join request, not only on success.
         self->save_nonces_();
@@ -246,8 +254,12 @@ void LoRaBridge::setup() {
         if (text_bytes > 0) { auto txt = self->pack_text_sensors(); for (size_t b = 0; b < txt.size(); ++b) payload[index + b] = txt[b]; }
 
         int16_t r = self->node_->sendReceive(payload.data(), payload.size(), 2);
-        ESP_LOGI(TAG, "Uplink sent (%d bytes)", payload.size());
-        if (r > 0) ESP_LOGI(TAG, "Downlink received");
+        if (r < 0) {
+          ESP_LOGW(TAG, "Uplink failed, state: %d", r);
+        } else {
+          ESP_LOGI(TAG, "Uplink sent (%d bytes)", payload.size());
+          if (r > 0) ESP_LOGI(TAG, "Downlink received");
+        }
       }
     },
     "LoRaWAN", 8192, this, 5, nullptr, 1

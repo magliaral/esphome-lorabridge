@@ -39,6 +39,8 @@ lorabridge:
   app_key: --------------------------------  # 32 hex characters
   # nwk_key: ------------------------------  # Optional, only for LoRaWAN 1.1 networks. Omit for LoRaWAN 1.0.x (TTN)
   uplink_interval: 60          # Optional, default 60 seconds
+  join_dr: 0                   # Optional, default 0. Data rate for the OTAA join (EU868: 0 = SF12/max range ... 5 = SF7)
+  scan_guard: 50               # Optional, default 50 ms. How much earlier RX windows open; increase if downlinks are missed
   payload:
     sensors:
       - sensor: sensor1_id

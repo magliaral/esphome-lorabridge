@@ -31,6 +31,8 @@ class LoRaBridge : public Component {
   void set_app_key(const std::array<uint8_t, 16> &app_key) { this->app_key_ = app_key; }
   void set_nwk_key(const std::array<uint8_t, 16> &nwk_key) { this->nwk_key_ = nwk_key; }
   void set_uplink_interval(uint32_t uplink_interval) { this->uplink_interval_ = uplink_interval; }
+  void set_join_dr(uint8_t join_dr) { this->join_dr_ = join_dr; }
+  void set_scan_guard(uint16_t scan_guard) { this->scan_guard_ = scan_guard; }
 
   // Chip + pin setters
   void set_chip(const std::string &chip) { this->chip_ = chip; }
@@ -72,6 +74,8 @@ class LoRaBridge : public Component {
   std::array<uint8_t, 16> app_key_;
   std::array<uint8_t, 16> nwk_key_;
   uint32_t uplink_interval_;
+  uint8_t join_dr_{0};
+  uint16_t scan_guard_{50};
   int16_t state_;
 
   // DevNonce/JoinNonce persistence (LoRaWAN 1.0.4 requires DevNonces
