@@ -32,10 +32,17 @@ external_components:
       ref: main                # or pin a release tag, e.g. ref: v0.2.0
 
 lorabridge:
-  region: EU868
-  join_eui: ----------------
-  dev_eui: ----------------
-  app_key: --------------------------------
+  radio:
+    region: EU868
+    chip: SX1262
+    nss_pin: 14
+    rst_pin: 42
+    irq_pin: 45
+    busy_pin: 38
+  network:
+    join_eui: ----------------
+    dev_eui: ----------------
+    app_key: --------------------------------
   uplink_interval: 300
   payload:
     sensors:
@@ -54,16 +61,21 @@ lorabridge:
 
 ## Configuration variables
 
-- **region** (**Required**): LoRaWAN region/band plan. One of `EU868`, `US915`, `AU915`, `AS923`, `AS923_2`, `AS923_3`, `AS923_4`, `IN865`, `KR920`, `CN500`.
-- **sub_band** (*Optional*, default `0`): Sub-band for regions with more than 8 uplink channels, e.g. `2` for TTN US915. Leave at `0` for EU868.
-- **join_eui** (**Required**): JoinEUI (AppEUI), 16 hex characters.
-- **dev_eui** (**Required**): DevEUI, 16 hex characters.
-- **app_key** (**Required**): AppKey, 32 hex characters.
-- **nwk_key** (*Optional*): NwkKey, 32 hex characters. Only for LoRaWAN 1.1 networks — omit it for LoRaWAN 1.0.x (e.g. TTN), otherwise the join uses 1.1 key derivation and fails.
+- **radio** (**Required**): Radio chip, wiring and regional settings.
+  - **region** (**Required**): LoRaWAN region/band plan. One of `EU868`, `US915`, `AU915`, `AS923`, `AS923_2`, `AS923_3`, `AS923_4`, `IN865`, `KR920`, `CN500`.
+  - **chip** (**Required**): Radio chip. One of `SX1261`, `SX1262`, `SX1268`, `SX1272`, `SX1276`, `SX1277`, `SX1278`, `SX1279`, `LR1110`, `LR1120`, `LR1121`.
+  - **nss_pin**, **rst_pin**, **irq_pin** (**Required**): Radio GPIO numbers (the example matches the LILYGO T-Connect-Pro).
+  - **busy_pin**, **gpio_pin** (*Optional*, default `-1`): Additional radio GPIOs; `-1` means not connected. SX126x/LR11x0 chips need **busy_pin**.
+  - **sub_band** (*Optional*, default `0`): Sub-band for regions with more than 8 uplink channels, e.g. `2` for TTN US915. Leave at `0` for EU868.
+  - **join_dr** (*Optional*, default `0`): Data rate for the OTAA join and the initial session. `0` (EU868: SF12/125 kHz) maximizes link budget and range; higher values (EU868: up to `5` = SF7) are faster and use far less airtime. Keep the default on marginal links.
+  - **scan_guard** (*Optional*, default `50`): Milliseconds by which RX windows open early. Increase if downlinks or join-accepts are missed (RadioLib error -1116).
+- **network** (**Required**): LoRaWAN credentials (from your network's device registration, e.g. the TTN console).
+  - **join_eui** (**Required**): JoinEUI (AppEUI), 16 hex characters.
+  - **dev_eui** (**Required**): DevEUI, 16 hex characters.
+  - **app_key** (**Required**): AppKey, 32 hex characters.
+  - **nwk_key** (*Optional*): NwkKey, 32 hex characters. Only for LoRaWAN 1.1 networks — omit it for LoRaWAN 1.0.x (e.g. TTN), otherwise the join uses 1.1 key derivation and fails.
 - **uplink_interval** (*Optional*, default `300`): Seconds between uplinks. The default matches what the EU868 1% duty cycle allows at the default `join_dr: 0` (SF12, ~2.8 s airtime per uplink — the radio cannot legally send more often than roughly every 280 s). At higher data rates you can lower this, but mind the TTN Fair Use Policy (30 s airtime per day).
-- **join_dr** (*Optional*, default `0`): Data rate for the OTAA join and the initial session. `0` (EU868: SF12/125 kHz) maximizes link budget and range; higher values (EU868: up to `5` = SF7) are faster and use far less airtime. Keep the default on marginal links.
-- **scan_guard** (*Optional*, default `50`): Milliseconds by which RX windows open early. Increase if downlinks or join-accepts are missed (RadioLib error -1116).
-- **payload**: Defines what is transmitted, in this order:
+- **payload** (*Optional*): Defines what is transmitted, in this order:
   - **sensors** (*Optional*): List of numeric sensors.
     - **sensor** (**Required**): The sensor ID.
     - **multiplier** (*Optional*, default `1`): Value is sent as `value * multiplier + offset`, rounded to an integer.
