@@ -36,7 +36,7 @@ lorabridge:
   join_eui: ----------------
   dev_eui: ----------------
   app_key: --------------------------------
-  uplink_interval: 60
+  uplink_interval: 300
   payload:
     sensors:
       - sensor: sensor1_id
@@ -60,7 +60,7 @@ lorabridge:
 - **dev_eui** (**Required**): DevEUI, 16 hex characters.
 - **app_key** (**Required**): AppKey, 32 hex characters.
 - **nwk_key** (*Optional*): NwkKey, 32 hex characters. Only for LoRaWAN 1.1 networks — omit it for LoRaWAN 1.0.x (e.g. TTN), otherwise the join uses 1.1 key derivation and fails.
-- **uplink_interval** (*Optional*, default `60`): Seconds between uplinks. Mind the regional duty cycle and the TTN Fair Use Policy: at `join_dr: 0` (SF12) a full uplink takes ~2.8 s airtime, so an interval of 300 s or more is appropriate.
+- **uplink_interval** (*Optional*, default `300`): Seconds between uplinks. The default matches what the EU868 1% duty cycle allows at the default `join_dr: 0` (SF12, ~2.8 s airtime per uplink — the radio cannot legally send more often than roughly every 280 s). At higher data rates you can lower this, but mind the TTN Fair Use Policy (30 s airtime per day).
 - **join_dr** (*Optional*, default `0`): Data rate for the OTAA join and the initial session. `0` (EU868: SF12/125 kHz) maximizes link budget and range; higher values (EU868: up to `5` = SF7) are faster and use far less airtime. Keep the default on marginal links.
 - **scan_guard** (*Optional*, default `50`): Milliseconds by which RX windows open early. Increase if downlinks or join-accepts are missed (RadioLib error -1116).
 - **payload**: Defines what is transmitted, in this order:

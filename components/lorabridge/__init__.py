@@ -35,7 +35,7 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Required(CONF_DEV_EUI): cv.All(cv.string, lambda value: validate_hex_length(value, 16, "dev_eui")),
         cv.Required(CONF_APP_KEY): cv.All(cv.string, lambda value: validate_hex_length(value, 32, "app_key")),
         cv.Optional(CONF_NWK_KEY, default="00000000000000000000000000000000"): cv.All(cv.string, lambda value: validate_hex_length(value, 32, "nwk_key")),
-        cv.Optional(CONF_UPLINK_INTERVAL, default=60): cv.uint32_t,
+        cv.Optional(CONF_UPLINK_INTERVAL, default=300): cv.uint32_t,
         cv.Optional(CONF_JOIN_DR, default=0): cv.int_range(min=0, max=15),
         cv.Optional(CONF_SCAN_GUARD, default=50): cv.uint16_t,
     }
