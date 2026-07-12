@@ -3,7 +3,8 @@
 // With Home Assistant _sensor_attr Extension
 //
 // Unified decoder: auto-detects payload layout
-//   "boat-v4": boat-v3 + GPS latitude/longitude (2x 4B, /1e7)
+//   "boat-v4": boat-v3 + GPS lat/lon (2x 4B, /1e7) + charger states as
+//              bits (12 binaries, 2 bitmask bytes) + only 3 texts
 //   "boat-v3": 14x2B + 1x1B sensors + 4 binaries + 5 texts (SY Alema, + Feuchte)
 //   "boat-v2": 14 sensors + 4 binaries + 5 texts  (SY Alema, + BTHome Temps)
 //   "boat":    11 sensors + 4 binaries + 5 texts  (SY Alema, legacy)
@@ -19,6 +20,12 @@
 //   - boat-v4 layout with GPS: latitude/longitude as 4-byte signed
 //     ints, divisor 1e7 (~1 cm). Consumed by the HA integration's
 //     device_tracker (map), not emitted as regular sensors.
+//   - boat-v4: mpptState/orionState travel as 4 bits each ("@"-entries
+//     in the bitmask, decoded back into the SAME text fields) instead of
+//     length-prefixed texts. This frees the payload budget the GPS bytes
+//     consume: with "Absorption" as text, GPS would have exceeded the
+//     51-byte DR0 limit and the whole uplink would have been dropped.
+//     The bitmask grows to ceil(n/8) bytes (firmware packs LSB-first).
 //   - readInt() rewritten without bit-shifts: JS shifts are 32-bit
 //     signed, which corrupted 4-byte values.
 //   - batteryTimeRemaining 0xFFFF ("infinite") now also omits the field
@@ -76,7 +83,10 @@ var HA_ATTR = {
 // ── Layout Definitions ───────────────────────────────────────────────────────
 // sensors: [name, divisor, signed, bytes?] - big-endian, in payload order
 //          bytes is optional and defaults to 2; 1-byte fields are unsigned-capable too
-// binaries: bit order in the single bitmask byte
+// binaries: bit order in the bitmask (ceil(n/8) bytes, LSB-first per byte).
+//          Plain entries decode to "on"/"off" fields. "@field:Label" entries
+//          are state bits: a set bit assigns Label to data[field]; if no bit
+//          of a field is set, the field is omitted (unknown -> keep last).
 // texts: length-prefixed strings, in payload order
 // NOTE: layouts are tried in order; keep the longest/most specific first.
 
@@ -102,8 +112,12 @@ var LAYOUTS = [
       ["latitude", 10000000, true, 4],
       ["longitude", 10000000, true, 4]
     ],
-    binaries: ["batteryAlarm", "mpptFault", "mpptError", "orionError"],
-    texts: ["batteryAlarmReason", "mpptState", "mpptErrorReason", "orionState", "orionErrorReason"]
+    binaries: [
+      "batteryAlarm", "mpptFault", "mpptError", "orionError",
+      "@mpptState:off", "@mpptState:Bulk", "@mpptState:Absorption", "@mpptState:Float",
+      "@orionState:off", "@orionState:Bulk", "@orionState:Absorption", "@orionState:Float"
+    ],
+    texts: ["batteryAlarmReason", "mpptErrorReason", "orionErrorReason"]
   },
   {
     name: "boat-v3",
@@ -223,7 +237,8 @@ function readText(bytes, i) {
 // Attempts to parse the payload against one layout.
 // Valid only if the text fields consume the payload exactly.
 function tryParse(bytes, layout) {
-  var fixedLen = 1;  // bitmask byte
+  var numBinBytes = Math.ceil(layout.binaries.length / 8);
+  var fixedLen = numBinBytes;
   for (var f = 0; f < layout.sensors.length; f++) {
     fixedLen += layout.sensors[f].length > 3 ? layout.sensors[f][3] : 2;
   }
@@ -247,10 +262,22 @@ function tryParse(bytes, layout) {
     i += width;
   }
 
-  var mask = bytes[i++];
   for (var b = 0; b < layout.binaries.length; b++) {
-    data[layout.binaries[b]] = ((mask >> b) & 1) === 1 ? "on" : "off";
+    var bit = (bytes[i + Math.floor(b / 8)] >> (b % 8)) & 1;
+    var name = layout.binaries[b];
+    if (name.charAt(0) === "@") {
+      // State bit "@field:Label": a set bit selects the label; if no bit
+      // of the field is set, the field stays omitted (state unknown).
+      if (bit === 1) {
+        var sep = name.indexOf(":");
+        var field = name.substring(1, sep);
+        if (data[field] === undefined) data[field] = name.substring(sep + 1);
+      }
+    } else {
+      data[name] = bit === 1 ? "on" : "off";
+    }
   }
+  i += numBinBytes;
 
   for (var t = 0; t < layout.texts.length; t++) {
     var r = readText(bytes, i);
