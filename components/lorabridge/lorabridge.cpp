@@ -1,6 +1,7 @@
 #include "lorabridge.h"
 #include "esphome/core/log.h"
 #include "esphome/core/helpers.h"
+#include <cmath>
 
 namespace esphome {
 namespace lorabridge {
@@ -244,10 +245,31 @@ void LoRaBridge::setup() {
         std::vector<uint8_t> payload(total_size, 0);
         size_t index = 0;
         for (auto &item : self->sensor_payload_items_) {
-          float raw = item.sensor_ ? item.sensor_->state : 0.0f;
-          int32_t val = static_cast<int32_t>(raw * item.multiplier_ + item.offset_);
+          // Encodable range for this width; the minimum (bit pattern
+          // 0x80 00..00) is reserved as the "invalid value" sentinel. The
+          // decoder drops sentinel fields so HA keeps the last known state.
+          const int64_t enc_min = -(int64_t(1) << (8 * item.bytes_ - 1));
+          const int64_t enc_max = -enc_min - 1;
+
+          float raw = item.sensor_ ? item.sensor_->state : NAN;
+          int64_t val;
+          if (!std::isfinite(raw)) {
+            val = enc_min;
+            ESP_LOGD(TAG, "Sensor '%s' has no valid state, sending invalid marker",
+                     item.sensor_ ? item.sensor_->get_name().c_str() : "?");
+          } else {
+            double scaled = double(raw) * item.multiplier_ + item.offset_;
+            val = int64_t(llround(scaled));
+            // Clamp instead of wrapping around (e.g. +337 W must not turn
+            // into -318 W in a 2-byte field)
+            if (val <= enc_min || val > enc_max) {
+              ESP_LOGW(TAG, "Sensor '%s' scaled value %.1f exceeds %u-byte range, clamping",
+                       item.sensor_->get_name().c_str(), scaled, item.bytes_);
+              val = (val <= enc_min) ? enc_min + 1 : enc_max;
+            }
+          }
           for (int b = 0; b < item.bytes_; b++)
-            payload[index + b] = (val >> (8 * (item.bytes_ - 1 - b))) & 0xFF;
+            payload[index + b] = uint8_t((val >> (8 * (item.bytes_ - 1 - b))) & 0xFF);
           index += item.bytes_;
         }
         if (binary_bytes > 0) { auto bin = self->pack_binary_sensors(); for (size_t b = 0; b < bin.size(); ++b) payload[index + b] = bin[b]; index += bin.size(); }

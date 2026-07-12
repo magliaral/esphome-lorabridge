@@ -8,6 +8,8 @@ ESPHome LoRaBridge is a custom component for transmitting sensor values over LoR
 - Optional `nwk_key` for LoRaWAN 1.1 networks
 - Shares ESPHome's existing SPI bus with other devices (e.g. a display) via a custom RadioLib HAL with proper bus arbitration
 - Configurable payload built from ESPHome sensors, binary sensors, and text sensors
+- Sensors without a valid state (NaN) are sent as a reserved "invalid" marker instead of a wrong number; out-of-range values are clamped instead of wrapping around
+- GPS position can be transmitted like any other sensor pair (see below) for a live position on the Home Assistant map
 
 Tested on a LILYGO T-Connect-Pro (ESP32-S3, SX1262) against The Things Network, EU868.
 
@@ -90,13 +92,41 @@ lorabridge:
 
 The uplink payload is packed in this order:
 
-1. **Sensors:** each value is sent as a big-endian signed integer of `bytes` length, computed as `value * multiplier + offset`
+1. **Sensors:** each value is sent as a big-endian signed integer of `bytes` length, computed as `round(value * multiplier + offset)`
 2. **Binary sensors:** packed as bits, 8 per byte (LSB first)
 3. **Text sensors:** each prefixed with a length byte, followed by the raw characters (max. 255 bytes)
 
-The total payload must fit within 51 bytes (LoRaWAN DR0 limit).
+The total payload must fit within 51 bytes (LoRaWAN DR0 limit) — mind this when adding fields; oversized uplinks are skipped with an error log.
 
-[decode.ttn](decode.ttn) contains an example uplink decoder for The Things Network matching this format.
+**Invalid values:** a sensor without a valid state (NaN, e.g. its data source is offline) is encoded as the reserved bit pattern `0x80 00…00` (the most negative value of the field width). The decoder omits such fields from the decoded payload, so downstream consumers (e.g. Home Assistant) keep the last known state instead of receiving a wrong number. Consequently the usable range of an n-byte field is `[-(2^(8n-1))+1, 2^(8n-1)-1]`; values outside are clamped. Binary sensors (single bits) and text sensors cannot signal "invalid".
+
+**GPS:** transmit latitude/longitude as two regular 4-byte sensors with `multiplier: 10000000` (≈1 cm resolution), e.g. with ESPHome's `gps:` component:
+
+```yaml
+gps:
+  latitude:
+    id: gps_latitude
+  longitude:
+    id: gps_longitude
+
+lorabridge:
+  # ...
+  payload:
+    sensors:
+      # ... other sensors ...
+      - sensor: gps_latitude
+        multiplier: 10000000
+        bytes: 4
+      - sensor: gps_longitude
+        multiplier: 10000000
+        bytes: 4
+```
+
+Before the first GPS fix the values are NaN and therefore sent as "invalid" (see above); an exact 0/0 position is dropped by the decoder as well.
+
+## TTN payload decoder
+
+[decoder/decode.js](decoder/decode.js) contains the uplink decoder for The Things Network (console → *Payload formatters* → *Uplink* → *Custom Javascript formatter*). It auto-detects known payload layouts, omits invalid-marker fields, and annotates fields with Home Assistant metadata (`_sensor_attr`) consumed by a matching `thethingsnetwork` custom integration. When the payload composition changes, add a new layout entry to `LAYOUTS` (longest first) and redeploy the formatter in the TTN console.
 
 ## License
 
