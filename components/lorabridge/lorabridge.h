@@ -1,5 +1,6 @@
 #pragma once
 
+#include "esphome/core/defines.h"
 #include "esphome/core/component.h"
 #include "esphome/core/log.h"
 #include "esphome/core/preferences.h"
@@ -11,6 +12,12 @@
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/text_sensor/text_sensor.h"
+
+#ifdef USE_LORABRIDGE_VIRTUAL_GATEWAY
+#include <atomic>
+#include "capture_radio.h"
+#include "virtual_gateway_forwarder.h"
+#endif
 
 namespace esphome {
 namespace lorabridge {
@@ -47,6 +54,19 @@ class LoRaBridge : public Component {
   void add_binary_payload_item(binary_sensor::BinarySensor *bin_sens);
   void add_text_payload_item(text_sensor::TextSensor *text_sens);
 
+#ifdef USE_LORABRIDGE_VIRTUAL_GATEWAY
+  // Virtual gateway config setters
+  void set_vgw_server(const std::string &server) { this->vgw_server_ = server; }
+  void set_vgw_port(uint16_t port) { this->vgw_port_ = port; }
+  void set_vgw_keepalive(uint32_t keepalive_ms) { this->vgw_keepalive_ms_ = keepalive_ms; }
+
+  // Diagnostics
+  void set_transport_mode_text_sensor(text_sensor::TextSensor *sens) { this->transport_mode_sensor_ = sens; }
+  void set_gateway_connected_binary_sensor(binary_sensor::BinarySensor *sens) {
+    this->gateway_connected_sensor_ = sens;
+  }
+#endif
+
  private:
   // Chip type (set via YAML)
   std::string chip_{"SX1262"};
@@ -65,6 +85,22 @@ class LoRaBridge : public Component {
   bool joined_{false};
   bool init_done_{false};
   uint32_t last_uplink_ms_{0};
+
+#ifdef USE_LORABRIDGE_VIRTUAL_GATEWAY
+  // Virtual gateway: capture wrapper control surface + UDP forwarder
+  CaptureControl *capture_ctl_{nullptr};
+  VirtualGatewayForwarder *forwarder_{nullptr};
+  std::string vgw_server_;
+  uint16_t vgw_port_{1700};
+  uint32_t vgw_keepalive_ms_{10000};
+  // Written by the LoRaWAN task, published from loop() on the main task
+  std::atomic<bool> transport_capture_{false};
+  bool last_published_capture_{false};
+  bool last_published_connected_{false};
+  bool published_once_{false};
+  text_sensor::TextSensor *transport_mode_sensor_{nullptr};
+  binary_sensor::BinarySensor *gateway_connected_sensor_{nullptr};
+#endif
 
   // LoRaWAN configuration
   LoRaWANBand_t region_ = EU868;

@@ -10,6 +10,7 @@ ESPHome LoRaBridge is a custom component for transmitting sensor values over LoR
 - Configurable payload built from ESPHome sensors, binary sensors, and text sensors
 - Sensors without a valid state (NaN) are sent as a reserved "invalid" marker instead of a wrong number; out-of-range values are clamped instead of wrapping around
 - GPS position can be transmitted like any other sensor pair (see below) for a live position on the Home Assistant map
+- Optional **virtual gateway** mode: while WiFi/Ethernet is up, uplinks are injected into TTN over UDP instead of RF — with automatic RF fallback, same session, same frame counter (see below)
 
 Tested on a LILYGO T-Connect-Pro (ESP32-S3, SX1262) against The Things Network, EU868.
 
@@ -87,6 +88,45 @@ lorabridge:
     - **binary_sensor** (**Required**): The binary sensor ID.
   - **text_sensors** (*Optional*): List of text sensors, each sent with a length byte prefix.
     - **text_sensor** (**Required**): The text sensor ID.
+
+## Virtual gateway (TTN over IP)
+
+Optionally, the bridge can act as its own **virtual gateway**: while the node has network connectivity (WiFi or Ethernet), the LoRaWAN frames built by RadioLib are not transmitted over RF but injected directly into TTN via the Semtech UDP packet-forwarder protocol (`eu1.cloud.thethings.network:1700` by default). When the network drops, the next uplink automatically goes out over RF again — same session, same frame counter, no rejoin, one device in TTN. The OTAA join always happens over RF.
+
+```yaml
+wifi:            # or ethernet: — required for the virtual gateway
+  # ...
+
+lorabridge:
+  # ... radio / network / payload as above ...
+  virtual_gateway:
+    enabled: true
+    server: eu1.cloud.thethings.network   # optional, default shown
+    port: 1700                            # optional, default shown
+    keepalive_interval: 10s               # optional, default shown
+
+# Optional diagnostics (only valid with virtual_gateway enabled):
+text_sensor:
+  - platform: lorabridge
+    name: "LoRa Transport Mode"       # "radio" / "capture"
+binary_sensor:
+  - platform: lorabridge
+    name: "TTN Gateway Connected"     # PULL_ACK seen recently
+```
+
+- **enabled** (*Optional*, default `true`): Enables the feature. When the `virtual_gateway:` block is absent or `enabled: false`, none of the virtual-gateway code is compiled into the binary and the component behaves exactly as before.
+- **server**/**port** (*Optional*): The network server's Semtech-UDP endpoint. Use the cluster your application lives on (e.g. `eu1`/`nam1`/`au1.cloud.thethings.network`).
+- **keepalive_interval** (*Optional*, default `10s`): PULL_DATA keepalive rate while the virtual gateway is active; keeps the NAT/CGNAT mapping open.
+
+**TTN setup (required):** TTN ignores traffic from unknown gateways. Register a new gateway in the TTN console **on the same cluster as `server`** with the EUI printed in the boot log (`Virtual gateway EUI: …`, derived from the ESP's MAC with `FFFE` padding), frequency plan EU868.
+
+How it works / notes:
+
+- RadioLib remains the only LoRaWAN stack: session, frame counters, MIC and MAC state are untouched — the finished PHYPayload is captured at the radio boundary and forwarded as an `rxpk` with deliberately poor fixed metadata (RSSI −119 dBm, SNR −14 dB) so the network server never tries to "improve" the data rate.
+- Each uplink is sent as one PUSH_DATA datagram; if no PUSH_ACK arrives within 500 ms it is retransmitted exactly once (same token), then dropped (unconfirmed uplinks — the next one comes anyway).
+- Downlinks are **not** emulated in capture mode: PULL_RESP messages are logged and discarded, so use unconfirmed uplinks only and don't schedule downlinks while the virtual gateway is active. ADR is disabled by the component.
+- The transport is chosen between uplinks, never mid-sequence; switching directions any number of times causes no rejoin.
+- Recommended: pin RadioLib to an exact version (`jgromes/RadioLib@7.1.2`) — the capture wrapper is verified against that release's internals.
 
 ## Payload format
 

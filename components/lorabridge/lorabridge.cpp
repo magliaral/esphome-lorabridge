@@ -3,6 +3,10 @@
 #include "esphome/core/helpers.h"
 #include <cmath>
 
+#ifdef USE_LORABRIDGE_VIRTUAL_GATEWAY
+#include "esphome/components/network/util.h"
+#endif
+
 namespace esphome {
 namespace lorabridge {
 
@@ -96,12 +100,24 @@ void LoRaBridge::save_nonces_() {
 
 // --- Factory: creates the correct RadioLib type and calls begin() ---
 
+#ifdef USE_LORABRIDGE_VIRTUAL_GATEWAY
+// Wrap the concrete radio in the TX-capture shim. CaptureRadio<cls> IS-A cls,
+// so the SX126x downcast below and LoRaWANNode's PhysicalLayer* stay valid.
+#define TRY_CHIP(cls) \
+  if (chip_ == #cls) { \
+    auto *r = new CaptureRadio<cls>(mod); \
+    capture_ctl_ = r; \
+    state = r->begin(); \
+    return r; \
+  }
+#else
 #define TRY_CHIP(cls) \
   if (chip_ == #cls) { \
     auto *r = new cls(mod); \
     state = r->begin(); \
     return r; \
   }
+#endif
 
 PhysicalLayer *LoRaBridge::createRadio(Module *mod, int16_t &state) {
   TRY_CHIP(SX1261)
@@ -176,6 +192,19 @@ void LoRaBridge::setup() {
     return;
   }
 
+  // RadioLib enables ADR by default; without it the implicit adrBackoff()
+  // lowers the DR over time. Keep the DR fixed at join_dr.
+  node_->setADR(false);
+
+#ifdef USE_LORABRIDGE_VIRTUAL_GATEWAY
+  forwarder_ = new VirtualGatewayForwarder();
+  forwarder_->set_server(vgw_server_);
+  forwarder_->set_port(vgw_port_);
+  forwarder_->set_keepalive_interval(vgw_keepalive_ms_);
+  forwarder_->setup();
+  capture_ctl_->set_capture_sink(forwarder_);
+#endif
+
   // Open RX windows earlier: the HAL's byte-wise polling SPI makes radio
   // configuration a few ms slower than RadioLib assumes internally.
   // Without this guard the (join) downlink preamble is missed -> ERR -1116.
@@ -228,6 +257,17 @@ void LoRaBridge::setup() {
       while (true) {
         vTaskDelay(pdMS_TO_TICKS(self->uplink_interval_ * 1000UL));
 
+#ifdef USE_LORABRIDGE_VIRTUAL_GATEWAY
+        // Transport decision, exactly once per uplink and never mid-sequence:
+        // the whole TX + RX-window sequence below runs under a single mode.
+        // The join loop above never touches the mode (wrapper default RADIO),
+        // so joining always happens over RF.
+        bool capture = self->joined_ && network::is_connected() && self->forwarder_->is_ready();
+        self->capture_ctl_->set_transport_mode(capture ? TransportMode::CAPTURE : TransportMode::RADIO);
+        self->forwarder_->set_active(capture);
+        self->transport_capture_.store(capture);
+#endif
+
         size_t total_size = 0;
         for (auto &item : self->sensor_payload_items_) total_size += item.bytes_;
         size_t binary_bytes = (self->binary_payload_items_.size() + 7) / 8;
@@ -275,6 +315,10 @@ void LoRaBridge::setup() {
         if (binary_bytes > 0) { auto bin = self->pack_binary_sensors(); for (size_t b = 0; b < bin.size(); ++b) payload[index + b] = bin[b]; index += bin.size(); }
         if (text_bytes > 0) { auto txt = self->pack_text_sensors(); for (size_t b = 0; b < txt.size(); ++b) payload[index + b] = txt[b]; }
 
+        // In CAPTURE mode the frame goes to the UDP forwarder instead of RF;
+        // the RX1/RX2 window waits (~6.5 s) still run inside sendReceive()
+        // (hal->delay() calls in RadioLib's LoRaWAN.cpp, not interceptable
+        // from the radio wrapper) — harmless in this dedicated task.
         int16_t r = self->node_->sendReceive(payload.data(), payload.size(), 2);
         if (r < 0) {
           ESP_LOGW(TAG, "Uplink failed, state: %d", r);
@@ -289,6 +333,27 @@ void LoRaBridge::setup() {
 }
 
 void LoRaBridge::loop() {
+#ifdef USE_LORABRIDGE_VIRTUAL_GATEWAY
+  if (this->forwarder_ == nullptr)
+    return;
+  this->forwarder_->loop();
+
+  // publish_state() must only run on the main task; state is fed from the
+  // LoRaWAN task via atomics. Publish on change only.
+  bool capture = this->transport_capture_.load();
+  bool connected = this->forwarder_->is_connected();
+  if (!this->published_once_ || capture != this->last_published_capture_) {
+    this->last_published_capture_ = capture;
+    if (this->transport_mode_sensor_ != nullptr)
+      this->transport_mode_sensor_->publish_state(capture ? "capture" : "radio");
+  }
+  if (!this->published_once_ || connected != this->last_published_connected_) {
+    this->last_published_connected_ = connected;
+    if (this->gateway_connected_sensor_ != nullptr)
+      this->gateway_connected_sensor_->publish_state(connected);
+  }
+  this->published_once_ = true;
+#endif
 }
 
 void LoRaBridge::dump_config() {
@@ -296,6 +361,15 @@ void LoRaBridge::dump_config() {
   ESP_LOGCONFIG(TAG, "  Chip: %s", chip_.c_str());
   ESP_LOGCONFIG(TAG, "  Pins: NSS=%d, RST=%d, IRQ=%d, BUSY=%d, GPIO=%d",
                 nss_pin_, rst_pin_, irq_pin_, busy_pin_, gpio_pin_);
+#ifdef USE_LORABRIDGE_VIRTUAL_GATEWAY
+  ESP_LOGCONFIG(TAG, "  Virtual Gateway: %s:%u (keepalive %ums)",
+                vgw_server_.c_str(), vgw_port_, vgw_keepalive_ms_);
+  if (this->forwarder_ != nullptr) {
+    const uint8_t *eui = this->forwarder_->gateway_eui();
+    ESP_LOGCONFIG(TAG, "  Gateway EUI: %02X%02X%02X%02X%02X%02X%02X%02X",
+                  eui[0], eui[1], eui[2], eui[3], eui[4], eui[5], eui[6], eui[7]);
+  }
+#endif
 }
 
 }  // namespace lorabridge

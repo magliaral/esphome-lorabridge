@@ -1,5 +1,6 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
+import esphome.final_validate as fv
 from esphome.const import (
     CONF_ID,
 )
@@ -29,6 +30,13 @@ CONF_APP_KEY = "app_key"
 CONF_NWK_KEY = "nwk_key"
 CONF_UPLINK_INTERVAL = "uplink_interval"
 CONF_PAYLOAD = "payload"
+CONF_VIRTUAL_GATEWAY = "virtual_gateway"
+CONF_ENABLED = "enabled"
+CONF_SERVER = "server"
+CONF_PORT = "port"
+CONF_KEEPALIVE_INTERVAL = "keepalive_interval"
+# Used by the text_sensor/binary_sensor diagnostic platforms
+CONF_LORABRIDGE_ID = "lorabridge_id"
 
 # Must match the chips handled in LoRaBridge::createRadio()
 SUPPORTED_CHIPS = [
@@ -63,6 +71,31 @@ PAYLOAD_TEXT_ITEM_SCHEMA = cv.Schema({
     cv.Required("text_sensor"): cv.use_id(text_sensor.TextSensor),
 })
 
+VIRTUAL_GATEWAY_SCHEMA = cv.Schema({
+    cv.Optional(CONF_ENABLED, default=True): cv.boolean,
+    cv.Optional(CONF_SERVER, default="eu1.cloud.thethings.network"): cv.string_strict,
+    cv.Optional(CONF_PORT, default=1700): cv.port,
+    cv.Optional(CONF_KEEPALIVE_INTERVAL, default="10s"): cv.positive_time_period_milliseconds,
+})
+
+
+def vgw_enabled(config):
+    vgw = config.get(CONF_VIRTUAL_GATEWAY)
+    return bool(vgw and vgw[CONF_ENABLED])
+
+
+def _final_validate(config):
+    if vgw_enabled(config):
+        full = fv.full_config.get()
+        if "wifi" not in full and "ethernet" not in full:
+            raise cv.Invalid(
+                "lorabridge virtual_gateway requires wifi: or ethernet: to be configured"
+            )
+    return config
+
+
+FINAL_VALIDATE_SCHEMA = _final_validate
+
 CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(LoRaBridge),
@@ -91,6 +124,7 @@ CONFIG_SCHEMA = cv.Schema(
                 cv.string, lambda value: validate_hex_length(value, 32, "nwk_key")),
         }),
         cv.Optional(CONF_UPLINK_INTERVAL, default=300): cv.uint32_t,
+        cv.Optional(CONF_VIRTUAL_GATEWAY): VIRTUAL_GATEWAY_SCHEMA,
         cv.Optional(CONF_PAYLOAD, default={}): cv.Schema({
             cv.Optional("sensors", default=[]): cv.ensure_list(SENSOR_PAYLOAD_ITEM_SCHEMA),
             cv.Optional("binary_sensors", default=[]): cv.ensure_list(BINARY_PAYLOAD_ITEM_SCHEMA),
@@ -144,6 +178,15 @@ async def to_code(config):
 
     # Uplink interval
     cg.add(var.set_uplink_interval(config[CONF_UPLINK_INTERVAL]))
+
+    # Virtual gateway (opt-in): without the define, none of the virtual
+    # gateway C++ is compiled in and no setters are generated.
+    if vgw_enabled(config):
+        vgw = config[CONF_VIRTUAL_GATEWAY]
+        cg.add_define("USE_LORABRIDGE_VIRTUAL_GATEWAY")
+        cg.add(var.set_vgw_server(vgw[CONF_SERVER]))
+        cg.add(var.set_vgw_port(vgw[CONF_PORT]))
+        cg.add(var.set_vgw_keepalive(vgw[CONF_KEEPALIVE_INTERVAL].total_milliseconds))
 
     # Sensor payload
     for item in config[CONF_PAYLOAD].get("sensors", []):
