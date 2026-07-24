@@ -61,10 +61,10 @@ class LoRaBridge : public Component {
   void set_vgw_keepalive(uint32_t keepalive_ms) { this->vgw_keepalive_ms_ = keepalive_ms; }
 
   // Diagnostics
-  void set_transport_mode_text_sensor(text_sensor::TextSensor *sens) { this->transport_mode_sensor_ = sens; }
   void set_gateway_connected_binary_sensor(binary_sensor::BinarySensor *sens) {
     this->gateway_connected_sensor_ = sens;
   }
+  void set_uplinks_forwarded_sensor(sensor::Sensor *sens) { this->uplinks_forwarded_sensor_ = sens; }
 #endif
 
  private:
@@ -87,19 +87,18 @@ class LoRaBridge : public Component {
   uint32_t last_uplink_ms_{0};
 
 #ifdef USE_LORABRIDGE_VIRTUAL_GATEWAY
-  // Virtual gateway: capture wrapper control surface + UDP forwarder
+  // Virtual gateway: TX-tee control surface + UDP forwarder
   CaptureControl *capture_ctl_{nullptr};
   VirtualGatewayForwarder *forwarder_{nullptr};
   std::string vgw_server_;
   uint16_t vgw_port_{1700};
   uint32_t vgw_keepalive_ms_{10000};
-  // Written by the LoRaWAN task, published from loop() on the main task
-  std::atomic<bool> transport_capture_{false};
-  bool last_published_capture_{false};
+  // Publishing state (main task only)
   bool last_published_connected_{false};
+  uint32_t last_published_forwarded_{0};
   bool published_once_{false};
-  text_sensor::TextSensor *transport_mode_sensor_{nullptr};
   binary_sensor::BinarySensor *gateway_connected_sensor_{nullptr};
+  sensor::Sensor *uplinks_forwarded_sensor_{nullptr};
 #endif
 
   // LoRaWAN configuration
@@ -125,6 +124,8 @@ class LoRaBridge : public Component {
 
   // Configuration
   static const uint32_t JOIN_DELAY_MS = 30000;
+  // Grace period between join-accept and the immediate first uplink
+  static const uint32_t FIRST_UPLINK_DELAY_MS = 2000;
 
   // Payload structs
   struct SensorPayloadItem {

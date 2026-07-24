@@ -9,10 +9,8 @@
 namespace esphome {
 namespace lorabridge {
 
-enum class TransportMode : uint8_t { RADIO = 0, CAPTURE = 1 };
-
-// Receives the finished PHYPayload (MHDR..MIC) when an uplink is captured
-// instead of RF-transmitted. Called from the LoRaWAN FreeRTOS task.
+// Receives a copy of the PHYPayload (MHDR..MIC) after it was RF-transmitted.
+// Called from the LoRaWAN FreeRTOS task.
 class UplinkCaptureSink {
  public:
   virtual void on_uplink_captured(const uint8_t *phy_payload, size_t len, float freq_mhz, uint8_t sf,
@@ -23,66 +21,57 @@ class UplinkCaptureSink {
 // without knowing the concrete CaptureRadio<R> instantiation.
 class CaptureControl {
  public:
-  virtual void set_transport_mode(TransportMode m) = 0;
-  virtual TransportMode get_transport_mode() const = 0;
   virtual void set_capture_sink(UplinkCaptureSink *sink) = 0;
+  // Enable the TX tee. Stays false until the OTAA join succeeded, so join
+  // requests are never copied: a join-accept cannot be delivered through the
+  // TX-only virtual gateway, and if only the virtual gateway heard the join
+  // request, the network server would route the accept there and the join
+  // would fail despite possible RF coverage.
+  virtual void set_tee_enabled(bool enabled) = 0;
 
-  // TODO(Phase 2 - RX emulation): downlink injection interface.
-  // Planned flow: the forwarder parses a PULL_RESP txpk (freq, datr, base64
-  // data) and calls inject_downlink(); the wrapper buffers the frame, reports
-  // RX_DONE instead of TIMEOUT from getIrqFlags() during the fake RX window,
-  // fires the registered packet-received action and serves the bytes via
-  // overridden readData()/getPacketLength()/getSNR(). The TX path stays
-  // untouched. Do NOT implement in Phase 1.
-  // virtual int16_t inject_downlink(const uint8_t *phy_payload, size_t len) = 0;
+  // ---------------------------------------------------------------------
+  // TODO(Phase 2 - RX fallback injection). Planned flow:
+  //  - A PULL_RESP arrives before RX1 (the server sends immediately). The
+  //    forwarder parses the txpk (freq/datr -> RX1-or-RX2 assignment),
+  //    buffers the frame with a cycle marker and answers with TX_ACK.
+  //  - getIrqFlags(): real hardware ALWAYS wins - a hardware RX_DONE is
+  //    passed through and the buffer discarded. Only on hardware timeout
+  //    WITH a buffered frame for the current window: report RX_DONE and
+  //    serve readData()/getPacketLength()/getSNR() from the buffer.
+  //  - Cycle binding is mandatory: clear the buffer at window close /
+  //    cycle end - a late PULL_RESP must never slip into the next cycle
+  //    (RadioLib would formally accept it).
+  // The TX tee below stays untouched when this is attached.
+  // virtual int16_t inject_downlink(const uint8_t *phy_payload, size_t len,
+  //                                 uint8_t window, uint32_t cycle_marker) = 0;
+  // ---------------------------------------------------------------------
 };
 
-// Sits between LoRaWANNode and the physical radio. In RADIO mode every call
-// passes through unchanged. In CAPTURE mode transmit() hands the frame to the
-// sink and the RX windows are answered with an immediate fake timeout, so the
-// radio never keys the PA and never listens.
-//
-// Config calls (setFrequency/setDataRate/...) are ALWAYS passed through to the
-// real hardware, so the chip state stays consistent and switching back to
-// RADIO between uplinks needs no re-initialization.
+// TX tee between LoRaWANNode and the physical radio: every transmission goes
+// out over RF unchanged; when the tee is enabled, a copy of the PHYPayload is
+// handed to the sink afterwards. RX windows run on the real hardware - no
+// receive-path overrides.
 template<typename R> class CaptureRadio : public R, public CaptureControl {
  public:
   explicit CaptureRadio(Module *mod) : R(mod) {}
 
-  void set_transport_mode(TransportMode m) override { this->mode_.store(m); }
-  TransportMode get_transport_mode() const override { return this->mode_.load(); }
   void set_capture_sink(UplinkCaptureSink *sink) override { this->sink_ = sink; }
+  void set_tee_enabled(bool enabled) override { this->tee_enabled_.store(enabled); }
 
-  // LoRaWANNode uses the blocking transmit() for join requests and uplinks
-  // and reads no radio state afterwards (verified against RadioLib 7.1.2),
-  // so returning ERR_NONE immediately is sufficient.
   int16_t transmit(const uint8_t *data, size_t len, uint8_t addr = 0) override {
-    if (this->mode_.load() == TransportMode::CAPTURE && this->sink_ != nullptr) {
+    int16_t state = R::transmit(data, len, addr);  // always transmit over RF (blocking)
+    // Send the copy only AFTER transmit() returns: it then arrives within the
+    // network server's ~200 ms dedup window together with the reports of real
+    // gateways instead of ~1.5 s (SF12 airtime) earlier - otherwise the
+    // virtual gateway would win the downlink routing.
+    if (state == RADIOLIB_ERR_NONE && this->tee_enabled_.load() && this->sink_ != nullptr)
       this->sink_->on_uplink_captured(data, len, this->last_freq_mhz_, this->last_sf_, this->last_bw_khz_);
-      return RADIOLIB_ERR_NONE;
-    }
-    return R::transmit(data, len, addr);
+    return state;
   }
 
-  int16_t startReceive(uint32_t timeout, RadioLibIrqFlags_t irq_flags, RadioLibIrqFlags_t irq_mask,
-                       size_t len) override {
-    if (this->mode_.load() == TransportMode::CAPTURE) {
-      this->fake_rx_active_ = true;  // radio stays in standby, no RF listening
-      return RADIOLIB_ERR_NONE;
-    }
-    return R::startReceive(timeout, irq_flags, irq_mask, len);
-  }
-
-  uint32_t getIrqFlags() override {
-    if (this->mode_.load() == TransportMode::CAPTURE && this->fake_rx_active_) {
-      this->fake_rx_active_ = false;
-      // checkIrq(RADIOLIB_IRQ_TIMEOUT) == getIrqFlags() & irqMap[TIMEOUT]:
-      // report "RX timeout" so receiveCommon() closes the window cleanly.
-      return this->irqMap[RADIOLIB_IRQ_TIMEOUT];
-    }
-    return R::getIrqFlags();
-  }
-
+  // Pass-through with parameter capture: LoRaWANNode programs the channel via
+  // setPhyProperties() right before each transmit; these values feed the rxpk
+  // JSON (freq/datr).
   int16_t setFrequency(float freq) override {
     this->last_freq_mhz_ = freq;
     return R::setFrequency(freq);
@@ -96,9 +85,8 @@ template<typename R> class CaptureRadio : public R, public CaptureControl {
   }
 
  private:
-  std::atomic<TransportMode> mode_{TransportMode::RADIO};
   UplinkCaptureSink *sink_{nullptr};
-  volatile bool fake_rx_active_{false};
+  std::atomic<bool> tee_enabled_{false};
   float last_freq_mhz_{868.1f};
   uint8_t last_sf_{12};
   float last_bw_khz_{125.0f};

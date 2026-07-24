@@ -101,7 +101,7 @@ void LoRaBridge::save_nonces_() {
 // --- Factory: creates the correct RadioLib type and calls begin() ---
 
 #ifdef USE_LORABRIDGE_VIRTUAL_GATEWAY
-// Wrap the concrete radio in the TX-capture shim. CaptureRadio<cls> IS-A cls,
+// Wrap the concrete radio in the TX tee. CaptureRadio<cls> IS-A cls,
 // so the SX126x downcast below and LoRaWANNode's PhysicalLayer* stay valid.
 #define TRY_CHIP(cls) \
   if (chip_ == #cls) { \
@@ -253,21 +253,19 @@ void LoRaBridge::setup() {
         }
       }
 
-      // Uplink loop
-      while (true) {
-        vTaskDelay(pdMS_TO_TICKS(self->uplink_interval_ * 1000UL));
-
 #ifdef USE_LORABRIDGE_VIRTUAL_GATEWAY
-        // Transport decision, exactly once per uplink and never mid-sequence:
-        // the whole TX + RX-window sequence below runs under a single mode.
-        // The join loop above never touches the mode (wrapper default RADIO),
-        // so joining always happens over RF.
-        bool capture = self->joined_ && network::is_connected() && self->forwarder_->is_ready();
-        self->capture_ctl_->set_transport_mode(capture ? TransportMode::CAPTURE : TransportMode::RADIO);
-        self->forwarder_->set_active(capture);
-        self->transport_capture_.store(capture);
+      // Enable the TX tee only now: join requests are never copied (a
+      // join-accept could not be delivered through the TX-only gateway).
+      self->capture_ctl_->set_tee_enabled(true);
 #endif
 
+      // First uplink right after the join (short grace period), then the
+      // regular interval counted from this first uplink - the delay sits at
+      // the END of the loop body.
+      vTaskDelay(pdMS_TO_TICKS(FIRST_UPLINK_DELAY_MS));
+
+      // Uplink loop
+      while (true) {
         size_t total_size = 0;
         for (auto &item : self->sensor_payload_items_) total_size += item.bytes_;
         size_t binary_bytes = (self->binary_payload_items_.size() + 7) / 8;
@@ -280,7 +278,11 @@ void LoRaBridge::setup() {
         }
         total_size += text_bytes;
 
-        if (total_size > 51) { ESP_LOGE(TAG, "Payload too large: %d bytes", total_size); continue; }
+        if (total_size > 51) {
+          ESP_LOGE(TAG, "Payload too large: %d bytes", total_size);
+          vTaskDelay(pdMS_TO_TICKS(self->uplink_interval_ * 1000UL));
+          continue;
+        }
 
         std::vector<uint8_t> payload(total_size, 0);
         size_t index = 0;
@@ -315,10 +317,6 @@ void LoRaBridge::setup() {
         if (binary_bytes > 0) { auto bin = self->pack_binary_sensors(); for (size_t b = 0; b < bin.size(); ++b) payload[index + b] = bin[b]; index += bin.size(); }
         if (text_bytes > 0) { auto txt = self->pack_text_sensors(); for (size_t b = 0; b < txt.size(); ++b) payload[index + b] = txt[b]; }
 
-        // In CAPTURE mode the frame goes to the UDP forwarder instead of RF;
-        // the RX1/RX2 window waits (~6.5 s) still run inside sendReceive()
-        // (hal->delay() calls in RadioLib's LoRaWAN.cpp, not interceptable
-        // from the radio wrapper) — harmless in this dedicated task.
         int16_t r = self->node_->sendReceive(payload.data(), payload.size(), 2);
         if (r < 0) {
           ESP_LOGW(TAG, "Uplink failed, state: %d", r);
@@ -326,6 +324,8 @@ void LoRaBridge::setup() {
           ESP_LOGI(TAG, "Uplink sent (%d bytes)", payload.size());
           if (r > 0) ESP_LOGI(TAG, "Downlink received");
         }
+
+        vTaskDelay(pdMS_TO_TICKS(self->uplink_interval_ * 1000UL));
       }
     },
     "LoRaWAN", 8192, this, 5, nullptr, 1
@@ -336,21 +336,21 @@ void LoRaBridge::loop() {
 #ifdef USE_LORABRIDGE_VIRTUAL_GATEWAY
   if (this->forwarder_ == nullptr)
     return;
+  this->forwarder_->set_active(network::is_connected());
   this->forwarder_->loop();
 
-  // publish_state() must only run on the main task; state is fed from the
-  // LoRaWAN task via atomics. Publish on change only.
-  bool capture = this->transport_capture_.load();
+  // publish_state() must only run on the main task. Publish on change only.
   bool connected = this->forwarder_->is_connected();
-  if (!this->published_once_ || capture != this->last_published_capture_) {
-    this->last_published_capture_ = capture;
-    if (this->transport_mode_sensor_ != nullptr)
-      this->transport_mode_sensor_->publish_state(capture ? "capture" : "radio");
-  }
+  uint32_t forwarded = this->forwarder_->uplinks_forwarded();
   if (!this->published_once_ || connected != this->last_published_connected_) {
     this->last_published_connected_ = connected;
     if (this->gateway_connected_sensor_ != nullptr)
       this->gateway_connected_sensor_->publish_state(connected);
+  }
+  if (!this->published_once_ || forwarded != this->last_published_forwarded_) {
+    this->last_published_forwarded_ = forwarded;
+    if (this->uplinks_forwarded_sensor_ != nullptr)
+      this->uplinks_forwarded_sensor_->publish_state(forwarded);
   }
   this->published_once_ = true;
 #endif

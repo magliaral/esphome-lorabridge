@@ -29,6 +29,7 @@ static const uint8_t PKT_PUSH_ACK = 0x01;
 static const uint8_t PKT_PULL_DATA = 0x02;
 static const uint8_t PKT_PULL_RESP = 0x03;
 static const uint8_t PKT_PULL_ACK = 0x04;
+static const uint8_t PKT_TX_ACK = 0x05;
 
 static const uint32_t DNS_RETRY_MS = 30000;
 
@@ -119,7 +120,8 @@ void VirtualGatewayForwarder::loop() {
   }
   this->last_net_connected_ = net;
 
-  if (net && !this->ready_.load() && (now - this->last_dns_attempt_ms_ >= DNS_RETRY_MS || this->last_dns_attempt_ms_ == 0)) {
+  if (net && !this->ready_.load() &&
+      (now - this->last_dns_attempt_ms_ >= DNS_RETRY_MS || this->last_dns_attempt_ms_ == 0)) {
     this->last_dns_attempt_ms_ = now;
     this->resolve_and_connect_();
   }
@@ -129,8 +131,8 @@ void VirtualGatewayForwarder::loop() {
   this->drain_rx_();
   this->check_retransmit_();
 
-  // PULL_DATA keepalive only while CAPTURE is the active transport
-  // (keeps the NAT/CGNAT mapping open for PULL_ACK/PULL_RESP).
+  // PULL_DATA keepalive only while the network is up (keeps the NAT/CGNAT
+  // mapping open for PULL_ACK/PULL_RESP).
   if (this->active_.load() && now - this->last_pull_data_ms_ >= this->keepalive_ms_) {
     this->last_pull_data_ms_ = now;
     this->send_pull_data_();
@@ -156,6 +158,22 @@ void VirtualGatewayForwarder::send_pull_data_() {
   }
 }
 
+void VirtualGatewayForwarder::send_tx_ack_(uint16_t token) {
+  // TX_ACK echoes the PULL_RESP token; no JSON body means "no error".
+  uint8_t pkt[12];
+  pkt[0] = PROTOCOL_VERSION;
+  pkt[1] = token >> 8;
+  pkt[2] = token & 0xFF;
+  pkt[3] = PKT_TX_ACK;
+  memcpy(&pkt[4], this->gateway_eui_, 8);
+
+  std::lock_guard<std::mutex> lock(this->mutex_);
+  if (this->fd_ < 0)
+    return;
+  if (::send(this->fd_, pkt, sizeof(pkt), 0) < 0)
+    ESP_LOGW(TAG, "TX_ACK send failed: errno %d", errno);
+}
+
 void VirtualGatewayForwarder::drain_rx_() {
   uint8_t buf[512];
   while (true) {
@@ -176,8 +194,13 @@ void VirtualGatewayForwarder::drain_rx_() {
       case PKT_PUSH_ACK: {
         std::lock_guard<std::mutex> lock(this->mutex_);
         if (this->pending_active_ && token == this->pending_token_) {
-          ESP_LOGD(TAG, "PUSH_ACK received (token %04X%s)", token, this->pending_retransmitted_ ? ", after retransmit" : "");
+          // First matching ACK confirms the uplink copy: count it exactly
+          // once and clear the pending frame - a second ACK (after a
+          // retransmit) finds no pending match and is ignored.
           this->pending_active_ = false;
+          this->uplinks_forwarded_.fetch_add(1);
+          ESP_LOGD(TAG, "PUSH_ACK received (token %04X%s), %" PRIu32 " uplinks forwarded", token,
+                   this->pending_retransmitted_ ? ", after retransmit" : "", this->uplinks_forwarded_.load());
         } else {
           ESP_LOGV(TAG, "PUSH_ACK received (token %04X, no pending frame)", token);
         }
@@ -189,12 +212,14 @@ void VirtualGatewayForwarder::drain_rx_() {
         ESP_LOGV(TAG, "PULL_ACK received (token %04X)", token);
         break;
       case PKT_PULL_RESP: {
-        // Phase 1: downlinks are not emulated — log and discard.
-        // TODO(Phase 2): parse txpk and feed it into CaptureControl::inject_downlink().
+        // Downlinks are not emulated: log, acknowledge with TX_ACK, discard.
+        // They reach the device natively over RF (RX windows run for real).
+        // TODO(Phase 2): buffer the txpk for RX fallback injection instead.
         size_t json_len = n - 4;
         if (json_len > 200)
           json_len = 200;
         ESP_LOGD(TAG, "PULL_RESP received, discarding downlink: %.*s", (int) json_len, (const char *) &buf[4]);
+        this->send_tx_ack_(token);
         break;
       }
       default:
@@ -231,14 +256,20 @@ void VirtualGatewayForwarder::on_uplink_captured(const uint8_t *phy_payload, siz
                                                  float bw_khz) {
   const std::string b64 = base64_encode(phy_payload, len);
   // tmst is defined as a wrapping uint32 microsecond counter; the network
-  // server only uses it for downlink timing, which Phase 1 discards anyway.
+  // server only uses it for downlink timing (downlinks go over RF anyway).
   const uint32_t tmst = (uint32_t) esp_timer_get_time();
 
+  // Deliberately poor, jittered metadata: the band sits at the lower edge of
+  // real SF12 receptions (demodulation limit ~ -20 dB SNR), so ADR never sees
+  // a "good" link and downlink routing prefers real gateways. One shared j
+  // keeps the rssi/lsnr pair physically plausible.
+  const float j = random_float();
+  const int rssi = -121 + (int) (j * 4.0f);       // [-121 .. -117] dBm
+  const float lsnr = -16.0f + j * 3.5f;           // [-16.0 .. -12.5] dB
+
   std::lock_guard<std::mutex> lock(this->mutex_);
-  if (this->fd_ < 0) {
-    // Race guard: the transport chooser verified is_ready() before selecting
-    // CAPTURE; the next uplink falls back to RF.
-    ESP_LOGW(TAG, "Socket not ready, dropping captured uplink (%u bytes)", (unsigned) len);
+  if (!this->active_.load() || this->fd_ < 0) {
+    ESP_LOGV(TAG, "Network down or socket not ready, dropping uplink copy (%u bytes)", (unsigned) len);
     return;
   }
 
@@ -249,16 +280,13 @@ void VirtualGatewayForwarder::on_uplink_captured(const uint8_t *phy_payload, siz
   this->pending_buf_[3] = PKT_PUSH_DATA;
   memcpy(&this->pending_buf_[4], this->gateway_eui_, 8);
 
-  // rssi/lsnr are fixed poor values so the network server never sees a "good"
-  // link and tries to ADR the device to a faster data rate (ADR is off, this
-  // is belt-and-braces).
   int json_len = snprintf(
       (char *) &this->pending_buf_[12], sizeof(this->pending_buf_) - 12,
       "{\"rxpk\":[{\"tmst\":%" PRIu32 ",\"chan\":0,\"rfch\":0,\"freq\":%.3f,\"stat\":1,\"modu\":\"LORA\","
-      "\"datr\":\"SF%uBW%u\",\"codr\":\"4/5\",\"rssi\":-119,\"lsnr\":-14.0,\"size\":%u,\"data\":\"%s\"}]}",
-      tmst, (double) freq_mhz, (unsigned) sf, (unsigned) bw_khz, (unsigned) len, b64.c_str());
+      "\"datr\":\"SF%uBW%u\",\"codr\":\"4/5\",\"rssi\":%d,\"lsnr\":%.1f,\"size\":%u,\"data\":\"%s\"}]}",
+      tmst, (double) freq_mhz, (unsigned) sf, (unsigned) bw_khz, rssi, (double) lsnr, (unsigned) len, b64.c_str());
   if (json_len <= 0 || (size_t) json_len >= sizeof(this->pending_buf_) - 12) {
-    ESP_LOGW(TAG, "rxpk JSON too large, dropping uplink");
+    ESP_LOGW(TAG, "rxpk JSON too large, dropping uplink copy");
     return;
   }
   this->pending_len_ = 12 + (size_t) json_len;
@@ -267,8 +295,8 @@ void VirtualGatewayForwarder::on_uplink_captured(const uint8_t *phy_payload, siz
     ESP_LOGW(TAG, "PUSH_DATA send failed: errno %d", errno);
     // Keep the frame pending: check_retransmit_() gets one more attempt.
   } else {
-    ESP_LOGI(TAG, "Uplink injected via virtual gateway (%u bytes, %.3f MHz, SF%uBW%u, token %04X)", (unsigned) len,
-             (double) freq_mhz, (unsigned) sf, (unsigned) bw_khz, token);
+    ESP_LOGI(TAG, "Uplink copy injected (%u bytes, %.3f MHz, SF%uBW%u, rssi %d, lsnr %.1f, token %04X)",
+             (unsigned) len, (double) freq_mhz, (unsigned) sf, (unsigned) bw_khz, rssi, (double) lsnr, token);
   }
   this->pending_token_ = token;
   this->pending_sent_ms_ = millis();

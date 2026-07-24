@@ -15,15 +15,16 @@
 namespace esphome {
 namespace lorabridge {
 
-// Injects captured LoRaWAN uplinks into a network server via the Semtech UDP
-// packet-forwarder protocol v2 (PUSH_DATA/rxpk) and keeps the NAT mapping
-// alive with PULL_DATA while capture is active.
+// Injects a copy of every RF-transmitted LoRaWAN uplink into a network server
+// via the Semtech UDP packet-forwarder protocol v2 (PUSH_DATA/rxpk). The
+// virtual gateway runs in parallel to real gateways; the network server
+// deduplicates the frame like it does for any multi-gateway reception. Keeps
+// the NAT mapping alive with PULL_DATA while the network is up.
 //
 // Threading: on_uplink_captured() runs on the LoRaWAN FreeRTOS task and only
 // sends on the socket. loop() runs on the ESPHome main task and owns DNS
 // resolution, socket lifecycle, keepalives, RX draining and the single
-// PUSH_DATA retransmit. mutex_ guards the socket fd lifecycle and the
-// pending-PUSH state against cross-task access.
+// PUSH_DATA retransmit.
 class VirtualGatewayForwarder : public UplinkCaptureSink {
  public:
   void set_server(const std::string &host) { this->host_ = host; }
@@ -33,12 +34,16 @@ class VirtualGatewayForwarder : public UplinkCaptureSink {
   void setup();  // derives + logs the gateway EUI, no network access
   void loop();   // main task: DNS, socket, keepalive, drain RX, retransmit
 
-  // True while CAPTURE is the selected transport; gates keepalives.
+  // Fed with network::is_connected() from the main loop. Gates the PULL_DATA
+  // keepalive and the acceptance of uplink copies; when false, captured
+  // frames are dropped silently (VERBOSE).
   void set_active(bool active) { this->active_.store(active); }
-  // DNS resolved and socket open — precondition for choosing CAPTURE.
-  bool is_ready() const { return this->ready_.load(); }
   // PULL_ACK seen within 3 keepalive intervals.
   bool is_connected() const;
+  // Uplink copies confirmed by the server via PUSH_ACK (exactly once per
+  // uplink, retransmit double-ACKs not counted). Says nothing about whether
+  // the network server used the frame or dropped it as a duplicate.
+  uint32_t uplinks_forwarded() const { return this->uplinks_forwarded_.load(); }
 
   const uint8_t *gateway_eui() const { return this->gateway_eui_; }
 
@@ -49,6 +54,7 @@ class VirtualGatewayForwarder : public UplinkCaptureSink {
   bool resolve_and_connect_();  // getaddrinfo + socket() + connect(), non-blocking fd
   void close_socket_();
   void send_pull_data_();
+  void send_tx_ack_(uint16_t token);
   void drain_rx_();
   void check_retransmit_();
 
@@ -62,6 +68,7 @@ class VirtualGatewayForwarder : public UplinkCaptureSink {
 
   std::atomic<bool> ready_{false};
   std::atomic<bool> active_{false};
+  std::atomic<uint32_t> uplinks_forwarded_{0};
   bool last_net_connected_{false};
 
   bool got_pull_ack_{false};
@@ -71,6 +78,14 @@ class VirtualGatewayForwarder : public UplinkCaptureSink {
 
   // Pending PUSH_DATA awaiting its PUSH_ACK: retransmitted exactly once with
   // the same token if no ACK arrives within RETRANSMIT_TIMEOUT_MS.
+  //
+  // SYNCHRONIZATION INVARIANT: this pending state is touched by both tasks -
+  // the LoRaWAN task writes it in on_uplink_captured(), the main task clears
+  // it on the ACK match in drain_rx_() and triggers the retransmit in
+  // check_retransmit_(). EVERY access to the fields below (and the counter
+  // increment tied to the ACK match) must happen under mutex_ - the same
+  // mutex that guards the socket lifecycle. No lock-free path, no partial
+  // access outside the lock.
   static const uint32_t RETRANSMIT_TIMEOUT_MS = 500;
   uint8_t pending_buf_[512];
   size_t pending_len_{0};
